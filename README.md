@@ -216,58 +216,67 @@ Every previously blocked case now executes:
 
 ## The eight seams — the most important fact about this codebase
 
-Every component is individually thorough: 3,771 tests pass, several components
-have their own fault injectors and evidence models, and the design documents
-behind them are unusually careful. And yet **most of the seams between them are
-stand-ins.** Each project was built correctly against its own idea of its
-neighbour, so nothing fails on either side — the two are simply not connected.
+Every component is individually thorough and yet most of the seams between them
+were stand-ins. Each project was built correctly against its own idea of its
+neighbour, so nothing failed on either side — the two were simply not connected.
+Three of the eight turned out this way, and all three were found by running the
+chain rather than by reading it.
 
-| # | Seam | Reality |
+| # | Seam | State |
 |---|---|---|
-| 1 | P01 → P02 | **proven live.** Two processes over HTTP; `probe` negotiates the contract, `scan` completes all three entities and returns the candidate checkpoint. |
-| 2 | P02 → P03 | **does not exist (CG-12).** P03 speaks HTTP to a P01-shaped API and never imports `mt5_connector`. The connector's isolation, worker epochs and late-response fencing are all bypassed. |
-| 3 | P03 → P04 | **stand-in (CG-13).** P04 fetches the source side from P01 for real, but its "P03 target" is a SQLite harness. `reconctl source check` prints `p03_implementation: "contract harness (Project 03 not yet implemented)"`. |
-| 4 | P03 → P05 | reader is dialect-aware and verified against PostgreSQL under a `SELECT`-only role; it queries P03's real table names but has not been run over data P03 wrote. |
-| 5 | P05 → P06 | **scoped (CG-01).** P06 serves from the 1.2k-line reference library over in-memory read views, not the 8.2k-line engine over P03's database. |
-| 6 | P03 → P07 | **proven (CG-08, CG-11).** Built this session. The outbox row commits in the Deal's transaction; verified on live data, 6 deals and 6 events with zero orphans either way. |
-| 7 | P07 schema ownership | **fixed (CG-07).** P07 no longer creates P03's tables by default, and both schemas now coexist in one database — which was impossible before CG-11. |
+| 1 | P01 → P02 | **proven live** — two processes over HTTP, all three entities scanned |
+| 2 | P02 → P03 | **proven live (CG-12 closed)** — P02 now serves the four read paths P03 already requested, each through `connector.read_page`, so bounded admission, the dedicated worker, worker epochs and late-response fencing are back in the path |
+| 3 | P03 → P04 | **stand-in (CG-13, open)** — P04 fetches the source for real but its "P03 target" is a SQLite harness; `reconctl source check` prints `p03_implementation: "contract harness"` |
+| 4 | P03 → P05 | **proven** — dialect-aware reader verified against PostgreSQL under a `SELECT`-only role, so the GRANT is the control rather than the code |
+| 5 | P05 → P06 | **scoped (CG-01)** — P06 serves from the reference library over in-memory read views |
+| 6 | P03 → P07 | **proven (CG-08, CG-11)** — the outbox row commits in the Deal's transaction |
+| 7 | P07 schema ownership | **fixed (CG-07)** — both schemas now coexist in one database, which CG-11 showed was impossible before |
 | 8 | P07 → P08 | topic names match. Never run against a real broker. |
 
-So: two seams proven, two absent, four partial. The components are not the
-problem; the wiring between them is the remaining work.
+Five proven, one scoped, one open, one untested.
 
-### What a live chain run looks like today
-
-```
-P01 (serve, :8001) → P03 (trading-sync run) → PostgreSQL broker_risk
-```
+## What a live run looks like
 
 ```
-accounts  PUBLISHED  1 record
-positions PUBLISHED  3 records   watermark 0 → 8
-deals     PUBLISHED  6 records   watermark 0 → 8
+P01 (serve :8001) → P02 (serve :18080) → P03 (trading-sync run) → PostgreSQL
 ```
 
-```sql
-deals: 6   accounts_current: 1   positions_current: 3   event_outbox: 6
-deals without an event: 0        events without a deal: 0
-aggregate_version: 1..6 contiguous on account A-000001
-money_currency_status: UNPROVEN  -- declared, not guessed
+```
+accounts  PUBLISHED   1 record
+positions PUBLISHED  11 records
+deals     PUBLISHED  20 records   watermark 8 → 38
 ```
 
-Getting that far needed three defects fixed, all found by running it and none
-visible to review:
+Then the independent oracle, which imports no component package:
+
+```
+$ make oracle
+  PASS  deal identity: OK - 26 records, identical sets (source 26, target 26)
+  PASS  account identity: OK - 1 records, identical sets
+  PASS  position identity: OK - 11 records, identical sets
+  PASS  deal realized_pnl_gross: OK - -36.560000000000 over 26 records
+  PASS  deal commission: OK - -45.800000000000 over 26 records
+  PASS  deal swap: OK - -1.300000000000 over 26 records
+  PASS  outbox coverage (deal <-> DealRecorded): OK - 26 records, identical sets
+ORACLE PASSED: 7 checks, all set-based or exact-decimal.
+```
+
+Identity is compared as sets and money by value with the oracle's own `Decimal`
+arithmetic. A count check would pass while one deal was lost and another
+invented; a text comparison of money would fail on every zero, because
+PostgreSQL returns `Decimal('0E-12')` where the payload said `"0.00"`.
+
+### Defects found by running it, none visible to review
 
 | Defect | Symptom |
 |---|---|
+| P07's outbox FK had no unique constraint to reference (CG-11) | `InvalidForeignKeyError` — the two projects could never have shared a database |
 | P01 sends `entry`, P03 wants `entry_kind` | deals scan failed `SCHEMA_ERROR` |
 | P01 sends `status`, P03 wants `source_status` | positions scan failed on a missing field |
-| P03 required a *positive* position volume while accepting `source_status` verbatim | positions scan failed `INVALID_MONEY` on the first `CLOSED` position — a closed position is flat, so the two rules contradicted each other |
-
-The first two are now translated in P03's source adapter, which is where an
-adapter belongs; P01's own design says the adapter absorbs the difference. The
-third is a genuine contradiction inside P03 and is fixed: volume must be
-non-negative, and negative is still refused because direction lives in `side`.
+| P03 required a positive position volume while keeping `source_status` verbatim | `INVALID_MONEY` on the first `CLOSED` position — a closed position is flat, so the two rules contradicted each other |
+| P02's `/v1/meta` had no integer `snapshot_seq` | `SOURCE_CONTRACT_ERROR`; the consumer's fallback is `0`, which would claim a cut at the beginning of time |
+| P02 sent its provenance digest as `filter_scope` | `FILTER_SCOPE_VIOLATION` — that key is P03's own scope vocabulary |
+| No least-privilege role existed | P05's role test returned `ALLOWED` under a superuser and was right to fail |
 
 ## Contract gaps
 
