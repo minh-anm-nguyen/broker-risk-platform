@@ -282,22 +282,82 @@ services:
       resources:
         limits: { cpus: "2.0", memory: 1G }
 
+  # --------------------------------------------- P04 / P05 / P07 operator roles ---
+  #
+  # Three components that are not servers. P04 proposes repairs and waits for
+  # approval, P05 is a library plus two operator tools, P07 relays. None of
+  # them starts work by default: each image's CMD is `--help`, so `compose up`
+  # brings them up idle and an operator runs the role they want with
+  # `compose run --rm <service> <subcommand>`. A relay that began publishing
+  # because somebody typed `up` would be moving real events on a whim.
+
+  p04-reconciliation:
+    <<: *test-only
+    build:
+      context: ..
+      dockerfile: apps/p04-reconciliation/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+      p01-simulator: { condition: service_started }
+    environment:
+      RECON_SOURCE_BASE_URL: http://p01-simulator:8001
+      RECON_SOURCE_ID: sim_local
+      RECON_SOURCE_DATA_TOKEN: ${SIM_DATA_TOKEN:-t1-data-token-local-only-0000000001}
+      RECON_DB_PATH: /srv/var/recon/recon.db
+    volumes:
+      - recon-evidence:/srv/var/recon
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+  p05-risk-engine:
+    <<: *test-only
+    build:
+      context: ..
+      dockerfile: apps/p05-risk-engine/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      # SELECT only. P05 reads upstream facts and must not be able to change
+      # them; the role is the control, not the code (design decision 2).
+      RISK_PG_DSN: postgresql://risk_reader@postgres:5432/broker_risk
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+  p07-relay:
+    <<: *test-only
+    build:
+      context: ..
+      dockerfile: apps/p07-outbox-relay/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      OUTBOX_STORE_BACKEND: postgres
+      # The same database Project 03 writes its Deals and outbox rows into.
+      # One database is what makes the shared transaction possible at all.
+      OUTBOX_PG_DSN: postgresql://platform:local-only-not-a-secret@postgres:5432/broker_risk
+      OUTBOX_KAFKA_BOOTSTRAP: kafka:9092
+      OUTBOX_RELAY_OWNER: t1-relay-1
+      OUTBOX_SOURCE_ALLOWLIST: sim_local
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
 # ---------------------------------------------------------------------------
-# Components deliberately absent as services
+# What `compose up` does and does not mean
 # ---------------------------------------------------------------------------
-# P04 reconciliation : CLI `reconctl` (package `reconciliation`). No Dockerfile.
-# P05 risk engine    : library + `risk-benchmark` / `risk-report`. No Dockerfile.
-# P07 outbox relay   : CLI `outbox` (package `outbox`). No Dockerfile.
+# Every component in the platform is now represented here. That is not the same
+# as the chain running. The three services above come up idle, by design, and a
+# green `compose ps` is still not evidence of a working pipeline - the P09
+# runner, or a person, has to drive each role and record what happened.
 #
-# The P09 runner invokes these in-process or as subprocesses against the
-# postgres and kafka services above. Adding an empty service entry for them
-# would be worse than their absence: `docker compose ps` would imply a running
-# relay, and a test could then "pass" with no relay at all. Giving them each a
-# Dockerfile is tracked follow-up work; until then the Kafka leg of any
-# end-to-end flow is driven by the runner, and that must be stated in the
-# evidence bundle rather than inferred from this file.
+# Also unchanged: one Kafka broker is not a cluster, and nothing in this file
+# establishes availability, failover or any RTO.
 
 volumes:
+  recon-evidence:
   postgres-data:
   kafka-data:
   clickhouse-data:

@@ -214,24 +214,60 @@ Every previously blocked case now executes:
   cases, 0 of 40 crash points, 0 of 20 E2E flows, 0 of 16 benchmarks. Gates
   G0–G5 NOT EVALUATED.** No throughput, latency, HA, RPO or RTO measured.
 
-## The eight seams
+## The eight seams — the most important fact about this codebase
 
-Every component's own suite passed while four of the eight seams between them
-were broken, because each component was tested against its own idea of its
-neighbour: P07 against a 336-line stand-in P03 it wrote itself, P06 against a
-reference engine. Each was internally consistent, and together they did not
-form a system.
+Every component is individually thorough: 3,771 tests pass, several components
+have their own fault injectors and evidence models, and the design documents
+behind them are unusually careful. And yet **most of the seams between them are
+stand-ins.** Each project was built correctly against its own idea of its
+neighbour, so nothing fails on either side — the two are simply not connected.
 
-| # | Seam | State |
+| # | Seam | Reality |
 |---|---|---|
-| 1 | P01 → P02 | **proven live** — two processes, HTTP, all three entities scanned |
-| 2 | P02 → P03 | real — `source_adapter.py` over httpx; contract honoured by the candidate checkpoint |
-| 3 | P03 → P04 | real — P04 reads P03's tables and boots P01 in-process |
-| 4 | P03/P04 → P05 | **proven** — dialect-aware reader, verified against PostgreSQL under a read-only role |
-| 5 | P05 → P06 | **scoped** — reference library, not the full engine (CG-01) |
-| 6 | P03 → P07 | **proven** — the outbox row commits in the Deal's transaction (CG-08, CG-11) |
-| 7 | P07 schema ownership | fixed — P07 no longer creates P03's tables by default (CG-07) |
-| 8 | P07 → P08 | topics match; **never run against a real broker** |
+| 1 | P01 → P02 | **proven live.** Two processes over HTTP; `probe` negotiates the contract, `scan` completes all three entities and returns the candidate checkpoint. |
+| 2 | P02 → P03 | **does not exist (CG-12).** P03 speaks HTTP to a P01-shaped API and never imports `mt5_connector`. The connector's isolation, worker epochs and late-response fencing are all bypassed. |
+| 3 | P03 → P04 | **stand-in (CG-13).** P04 fetches the source side from P01 for real, but its "P03 target" is a SQLite harness. `reconctl source check` prints `p03_implementation: "contract harness (Project 03 not yet implemented)"`. |
+| 4 | P03 → P05 | reader is dialect-aware and verified against PostgreSQL under a `SELECT`-only role; it queries P03's real table names but has not been run over data P03 wrote. |
+| 5 | P05 → P06 | **scoped (CG-01).** P06 serves from the 1.2k-line reference library over in-memory read views, not the 8.2k-line engine over P03's database. |
+| 6 | P03 → P07 | **proven (CG-08, CG-11).** Built this session. The outbox row commits in the Deal's transaction; verified on live data, 6 deals and 6 events with zero orphans either way. |
+| 7 | P07 schema ownership | **fixed (CG-07).** P07 no longer creates P03's tables by default, and both schemas now coexist in one database — which was impossible before CG-11. |
+| 8 | P07 → P08 | topic names match. Never run against a real broker. |
+
+So: two seams proven, two absent, four partial. The components are not the
+problem; the wiring between them is the remaining work.
+
+### What a live chain run looks like today
+
+```
+P01 (serve, :8001) → P03 (trading-sync run) → PostgreSQL broker_risk
+```
+
+```
+accounts  PUBLISHED  1 record
+positions PUBLISHED  3 records   watermark 0 → 8
+deals     PUBLISHED  6 records   watermark 0 → 8
+```
+
+```sql
+deals: 6   accounts_current: 1   positions_current: 3   event_outbox: 6
+deals without an event: 0        events without a deal: 0
+aggregate_version: 1..6 contiguous on account A-000001
+money_currency_status: UNPROVEN  -- declared, not guessed
+```
+
+Getting that far needed three defects fixed, all found by running it and none
+visible to review:
+
+| Defect | Symptom |
+|---|---|
+| P01 sends `entry`, P03 wants `entry_kind` | deals scan failed `SCHEMA_ERROR` |
+| P01 sends `status`, P03 wants `source_status` | positions scan failed on a missing field |
+| P03 required a *positive* position volume while accepting `source_status` verbatim | positions scan failed `INVALID_MONEY` on the first `CLOSED` position — a closed position is flat, so the two rules contradicted each other |
+
+The first two are now translated in P03's source adapter, which is where an
+adapter belongs; P01's own design says the adapter absorbs the difference. The
+third is a genuine contradiction inside P03 and is fixed: volume must be
+non-negative, and negative is still refused because direction lives in `side`.
 
 ## Contract gaps
 

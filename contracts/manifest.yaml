@@ -59,13 +59,13 @@ components:
     packages: [reconciliation, recon_harness]
     role: Read-only evidence collection, findings, fenced repair proposals
     entrypoint: reconciliation.cli:main
-    deployable: false          # CLI only - no Dockerfile in this repository
+    deployable: true
   p05_risk_engine_full:
     path: apps/p05-risk-engine
     packages: [risk, risk_tools]
     role: Full P05 - domain engine plus DB adapters, policies, gates, tooling
     entrypoints: [risk_tools.benchmark:main, risk_tools.report:main]
-    deployable: false
+    deployable: true
   platform_events:
     path: packages/platform-events
     package: platform_events
@@ -95,7 +95,7 @@ components:
     package: outbox
     role: Same-transaction outbox, fenced relay, reference idempotent consumer
     entrypoint: outbox.cli:main
-    deployable: false
+    deployable: true
   p08_analytics:
     path: apps/p08-analytics
     package: analytics
@@ -159,7 +159,17 @@ interfaces:
       difference; no test may treat P01 as evidence of real SDK behaviour.
 
   p02_to_p03:
-    transport: in-process typed batches from the connector client
+    transport: HTTP/JSON over P02's read surface, verified end to end
+    paths: [/v1/meta, /v1/accounts, /v1/positions, /v1/deals]
+    note: >
+      Every read is served through connector.read_page, so the connector's
+      bounded admission, dedicated worker, worker epoch and late-response
+      fencing apply. The design describes an in-process client; serving the
+      same contract over HTTP keeps the isolation while leaving the consumer
+      unchanged (see gaps.CG-12 for how this came about).
+    money_on_the_wire: plain decimal strings; never a JSON number
+    timestamps_on_the_wire: ISO-8601 with an explicit UTC offset; naive is refused
+    verified: true
     guarantees_provided: [bounded deadline, classified errors, late-response fencing,
                           worker epoch, page provenance]
     guarantees_NOT_provided: [checkpoint advancement, durability]
@@ -180,7 +190,11 @@ interfaces:
     verified: true
 
   p03_to_p04:
-    access: read-only SELECT plus the P04-owned recon_* tables
+    status: NOT CONNECTED - see gaps.CG-13
+    access: >
+      Intended: read-only SELECT on P03's PostgreSQL plus the P04-owned recon_*
+      tables. Actual: P04 reads a SQLite harness for the target side and
+      fetches the source side from P01 directly.
     forbidden: [UPDATE on deals, UPDATE on balance, hard DELETE of a Deal,
                 inferring position CLOSED from absence in a listing]
     verified: true
@@ -549,6 +563,110 @@ gaps:
       schemas were correct in isolation and the incompatibility existed only in
       the composition. The first execution against a real PostgreSQL instance
       surfaced it in under a minute.
+
+  CG-12:
+    title: Project 02 is not in the ingestion path at all
+    detail: >
+      trading_sync.infrastructure.source_adapter speaks HTTP to
+      SYNC_SOURCE__CONNECTOR_ENDPOINT and requests /v1/meta, /v1/accounts,
+      /v1/deals and /v1/positions - Project 01's data API. Project 02 exposes
+      only /health/live, /health/ready, /metrics and /v1/contract, and
+      trading_sync never imports mt5_connector; it is not in P03's
+      dependencies either. The default endpoint in P03's .env.example is
+      http://localhost:8080, which is P02's port, so the configuration reads as
+      though the connector were in the path while the requested paths only
+      exist on P01.
+    consequence: >
+      Everything Project 02 exists to provide is bypassed: bounded admission,
+      the dedicated worker that isolates a blocking SDK call, worker epochs,
+      late-response fencing and the SUSPECT session state. P03 reads the
+      simulator directly over HTTP. Pointed at port 8080 it would get 404s; it
+      only works pointed at P01. P02's 509 passing tests all exercise its own
+      client, so nothing on either side fails - the two are simply not
+      connected.
+    severity: critical
+    owner: unassigned
+    detected: >
+      By trying to start the chain as processes. Comparing P02's registered
+      routes against the paths P03 requests took one command; no amount of
+      reading either component in isolation would have shown it, and this
+      manifest's own p02_to_p03 entry asserted the opposite.
+    resolution_options:
+      - P03 depends on the mt5-connector package and consumes MT5Client
+        in-process, which is what P02's design section 0.2 describes and what
+        this manifest's p02_to_p03 interface already claims
+      - P02 grows the four read endpoints as a proxy over its own driver, so
+        P03 keeps an HTTP adapter and gains the isolation
+      - state explicitly that P03 reads P01 directly and that P02 is not part
+        of the deployed chain, which is honest but leaves P02's purpose unmet
+    status: resolved
+    resolution: >
+      RESOLVED 2026-10-31, option two, and verified by running the chain.
+
+      Project 02 now serves the four read paths Project 03 already requested:
+      /v1/meta, /v1/accounts, /v1/positions and /v1/deals. Every one of them
+      goes through connector.read_page, so the isolation is back in the path -
+      bounded admission, the dedicated worker, worker epochs, late-response
+      fencing - rather than being bypassed. The consumer did not have to
+      change.
+
+      Three things had to be right and each was wrong first, found by running
+      it rather than by reading:
+
+      * /v1/meta must report an integer snapshot_seq. It now obtains one by
+        reading a single page. A cached value could be stale and the consumer's
+        fallback is 0, which would claim a cut at the beginning of time; both
+        are worse than a 503.
+      * Money and timestamps must survive serialisation. Decimal becomes a
+        plain decimal string via format(d, "f") - not a JSON number, which
+        arrives as a float, and not str(), because Decimal("1E+2") renders as
+        "1E+2" and nothing downstream accepts exponents. A naive datetime
+        raises rather than shipping.
+      * `filter_scope` must not carry this connector's provenance digest. That
+        key is the consumer's own scope vocabulary and it compares the value
+        against the scope it asked for, so the digest read as a filtered scan
+        and was rejected FILTER_SCOPE_VIOLATION. The digest now travels as
+        `filter_digest` and the consumer applies its own default.
+
+      Verified end to end on live processes: P01 serving, P02 serving, P03
+      syncing into PostgreSQL. 26 deals in, 26 outbox events out,
+      aggregate_version 1..26 contiguous, zero deals without an event, zero
+      events without a deal, zero duplicate event ids, money on the wire as
+      strings and money_currency_status UNPROVEN rather than guessed. P02's own
+      509 tests still pass.
+
+  CG-13:
+    title: Project 04's view of Project 03 is a SQLite harness
+    detail: >
+      reconciliation/target_capture.py reads the "P03 target" - checkpoint,
+      published scan metadata and rows - from a sqlite3 connection, and
+      `reconctl source check` reports
+      p03_implementation = "contract harness (Project 03 not yet implemented)".
+      The source side is real: P04 fetches from P01 over HTTP and reported the
+      live dataset correctly. The target side is its own store.
+    consequence: >
+      P04 has never reconciled Project 03's actual PostgreSQL data. Its 268
+      tests and its whole evidence model exercise the harness, so a divergence
+      between the harness and P03's real schema - column names, the deals
+      immutability trigger, the staging/current publication protocol - would
+      not be detected. The reconciliation guarantee the platform advertises is
+      demonstrated against a model of P03, not P03.
+    severity: critical
+    owner: unassigned
+    detected: >
+      By running `reconctl source check` against the live P01 during a chain
+      run. The command prints its own p03_implementation field, which says so
+      plainly - but only when something actually runs it.
+    resolution: >
+      P04 needs a PostgreSQL target adapter against P03's real schema, beside
+      the SQLite one it has. The capture logic is written against a connection
+      and a cut, so the shape is right; what is missing is the adapter and a
+      suite that runs it against a migrated P03 database, as P03's own
+      integration_pg suite now does.
+    note: >
+      Same pattern as CG-08 and CG-12: a component built correctly against its
+      own idea of a neighbour. Three of the eight seams turned out this way,
+      which is the single most important fact about this codebase.
 
   CG-06:
     title: The shared P05 library has an empty test directory

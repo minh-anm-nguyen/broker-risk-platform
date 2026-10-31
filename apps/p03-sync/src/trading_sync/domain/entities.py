@@ -29,7 +29,7 @@ from trading_sync.domain.identifiers import normalize_identifier
 from trading_sync.domain.money import parse_money, parse_positive_money
 from trading_sync.domain.snapshots import Side, parse_side
 from trading_sync.domain.timestamps import parse_utc_timestamp
-from trading_sync.errors import InvalidIdentifierError, SchemaError
+from trading_sync.errors import InvalidIdentifierError, InvalidMoneyError, SchemaError
 
 __all__ = ["AccountRecord", "DealRecord", "PositionRecord", "MAX_SYMBOL_LENGTH"]
 
@@ -193,9 +193,23 @@ class PositionRecord:
         )
         symbol = _parse_symbol(_require(payload, "symbol"))
         side = parse_side(_require(payload, "side"))
-        volume_lots = parse_positive_money(
-            _require(payload, "volume_lots"), field="volume_lots"
-        )
+        # Non-negative, not strictly positive. This class keeps
+        # ``source_status`` verbatim precisely so a source may report a
+        # position that is no longer open, and a closed position is flat: its
+        # volume is zero. Requiring a positive volume contradicted that, and
+        # the two conditions could not both hold - a positions scan failed
+        # INVALID_MONEY on the first closed position the simulator returned.
+        #
+        # Zero is allowed; negative is not. A negative lot count is not a
+        # short position, it is a corrupt one: direction lives in ``side``.
+        volume_lots = parse_money(_require(payload, "volume_lots"), field="volume_lots")
+        if volume_lots < 0:
+            raise InvalidMoneyError(
+                "position volume cannot be negative; direction is carried by side",
+                field="volume_lots",
+            )
+        # Still strictly positive: a position opened at zero has no price, and
+        # nothing downstream could value it.
         open_price = parse_positive_money(
             _require(payload, "open_price"), field="open_price"
         )

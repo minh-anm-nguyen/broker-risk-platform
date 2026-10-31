@@ -57,6 +57,21 @@ _ENTITY_PATHS = {
     Entity.DEALS: "/v1/deals",
 }
 
+#: Wire field names that differ from the domain's. Translating them is this
+#: adapter's job: the source's REST surface is a test contract, not the domain
+#: vocabulary, and Project 01's own design says the adapter absorbs the
+#: difference. Doing it here keeps the entity validators speaking one language
+#: instead of accepting two spellings of the same field.
+#:
+#: Found by running the chain: without these, a deals scan fails SCHEMA_ERROR
+#: on a missing `entry_kind` and a positions scan fails on a missing
+#: `source_status`, while every component's own suite stays green because each
+#: one tests its own vocabulary (contract gap CG-12).
+_WIRE_TO_DOMAIN: dict[Entity, dict[str, str]] = {
+    Entity.DEALS: {"entry": "entry_kind"},
+    Entity.POSITIONS: {"status": "source_status"},
+}
+
 
 class HttpConnectorSource:
     """Reads pages from the connector, one page per consumer request."""
@@ -144,6 +159,7 @@ class HttpConnectorSource:
     def iter_deals(self, source_id: str, after_seq: int) -> AsyncIterator[RawPage]:
         return self._iter_pages(source_id, Entity.DEALS, {"after_seq": after_seq})
 
+
     async def _iter_pages(
         self, source_id: str, entity: Entity, first_params: Mapping[str, Any]
     ) -> AsyncIterator[RawPage]:
@@ -168,6 +184,25 @@ class HttpConnectorSource:
             params = {"cursor": request_cursor, "limit": self._settings.source.page_size}
             index += 1
 
+
+    @staticmethod
+    def _to_domain_payload(entity: Entity, item: object) -> object:
+        """Rename the fields whose wire spelling differs from the domain's.
+
+        Only renames. No value is coerced, no default is supplied and no field
+        is dropped: a missing field stays missing so the entity validator still
+        refuses it, rather than this layer papering over a source that omitted
+        something.
+        """
+        mapping = _WIRE_TO_DOMAIN.get(entity)
+        if not mapping or not isinstance(item, dict):
+            return item
+        renamed = dict(item)
+        for wire, domain in mapping.items():
+            if wire in renamed and domain not in renamed:
+                renamed[domain] = renamed.pop(wire)
+        return renamed
+
     def _to_raw_page(
         self,
         source_id: str,
@@ -183,6 +218,7 @@ class HttpConnectorSource:
         items = body["items"]
         if not isinstance(items, list):
             raise SchemaError("page items is not an array", field="items")
+        items = [self._to_domain_payload(entity, item) for item in items]
         cursor_present = "next_cursor" in body
         next_cursor = body.get("next_cursor") if cursor_present else None
         if next_cursor is not None and not isinstance(next_cursor, str):

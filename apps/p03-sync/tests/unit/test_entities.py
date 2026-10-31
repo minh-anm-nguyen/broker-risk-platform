@@ -143,10 +143,40 @@ def test_currency_allowlist_blocks_a_unit_swap() -> None:
 
 
 @pytest.mark.whatif("WF3-083")
-@pytest.mark.parametrize("volume", ["-0.10", "0"])
-def test_non_positive_position_volume_is_rejected(volume: str) -> None:
+@pytest.mark.parametrize("volume", ["-0.10", "-0.00000000001"])
+def test_negative_position_volume_is_rejected(volume: str) -> None:
+    """A negative lot count is not a short position, it is a corrupt one.
+
+    Direction is carried by ``side``, so a negative volume has no meaning the
+    domain can act on.
+    """
     with pytest.raises(InvalidMoneyError):
         PositionRecord.from_payload(position_payload(volume_lots=volume))
+
+
+@pytest.mark.whatif("WF3-083")
+@pytest.mark.parametrize("status", ["CLOSED", "OPEN"])
+def test_zero_position_volume_is_accepted(status: str) -> None:
+    """Zero is a flat position, and the source does report them.
+
+    This case previously asserted the opposite, and that assertion contradicted
+    ``test_source_status_is_preserved_verbatim`` six lines below it: a record
+    that keeps ``CLOSED`` verbatim must be able to hold the volume a closed
+    position has, which is zero. The contradiction was invisible until the
+    chain ran - a positions scan against Project 01 failed ``INVALID_MONEY`` on
+    the first ``CLOSED`` position it was handed (contract gap CG-13's
+    neighbourhood; the fix is in ``PositionRecord.from_payload``).
+
+    Accepted for ``OPEN`` too, deliberately. Whether a zero-volume open
+    position is meaningful is the source's claim to make, not this validator's
+    to second-guess; ``source_status`` is kept verbatim for exactly that
+    reason.
+    """
+    record = PositionRecord.from_payload(
+        position_payload(volume_lots="0", source_status=status)
+    )
+    assert record.volume_lots == Decimal("0")
+    assert record.source_status == status
 
 
 @pytest.mark.whatif("WF3-074")
