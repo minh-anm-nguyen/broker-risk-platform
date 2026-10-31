@@ -425,9 +425,10 @@ gaps:
       changes."
     severity: critical
     owner: unassigned
-    status: implemented-unverified
+    status: resolved
     resolution: >
-      IMPLEMENTED 2026-10-31, DATABASE VERIFICATION BLOCKED.
+      RESOLVED 2026-10-31. Implemented and then PROVEN against PostgreSQL
+      17.6 on 127.0.0.1:55432.
 
       The event contract was extracted to packages/platform-events, so P03 can
       build a DealRecorded without importing the relay. P03 now declares P07's
@@ -448,15 +449,17 @@ gaps:
       contract package imports with no component dependency. P07's 379 tests
       still pass through the re-export shims.
 
-      NOT verified: the insert itself. Six cases in
-      tests/integration_pg/test_outbox_atomicity.py cover one-event-per-deal,
-      replay emitting nothing, version contiguity, all-or-nothing rollback,
-      payload/row agreement and the default-off posture. They report
-      BLOCKED_ENVIRONMENT without SYNC_TEST_DATABASE_URL and no PostgreSQL was
-      available. Until they run, the P03 -> P07 -> Kafka -> P08 chain is
-      implemented but unproven, and that test file is also the first thing that
-      applies P07's outbox DDL over P03's migrated schema - the schema
-      compatibility check CG-07 left open.
+      VERIFIED against a real database. All six cases in
+      tests/integration_pg/test_outbox_atomicity.py pass: one event per newly
+      inserted Deal, a replayed page emitting nothing further, aggregate
+      versions contiguous per account and independent between accounts, a
+      failed page leaving neither a Deal nor an event, the event payload
+      matching the stored row, and emission staying off until switched on.
+      P03's whole suite is now 378 passed with nothing skipped, where it was
+      255 passed and 123 BLOCKED_ENVIRONMENT.
+
+      Applying P07's outbox DDL over P03's migrated schema also closed the
+      compatibility question CG-07 left open - by failing, see CG-11.
 
       Done since: outbox/p03/sync_service.py is now labelled TEST DOUBLE and
       its docstring points at the real producer, instead of still claiming
@@ -514,6 +517,38 @@ gaps:
       P03's ingress pipeline. Until then an incompatible source stops Deal
       synchronisation rather than corrupting it, which is the correct ordering
       of bad outcomes.
+
+  CG-11:
+    title: P07's outbox foreign key had no unique constraint to reference
+    detail: >
+      event_outbox declares
+      FOREIGN KEY (source_id, epoch_id) REFERENCES source_epochs (source_id,
+      epoch_id), so an event cannot claim the wrong source for an epoch.
+      P03's source_epochs had PRIMARY KEY (epoch_id) and
+      UNIQUE (source_id, run_id, generation), but no unique constraint on the
+      pair. The pair cannot repeat - epoch_id is the primary key - but
+      PostgreSQL does not infer that, and a composite foreign key may only
+      reference explicitly unique columns.
+    consequence: >
+      Applying P07's DDL to P03's database failed outright with
+      InvalidForeignKeyError. The two projects could not share one database at
+      all, which means the outbox row could never have sat in the same
+      transaction as the Deal. Nothing in either schema read as wrong; only
+      running them together revealed it.
+    severity: critical
+    owner: unassigned
+    status: resolved
+    resolution: >
+      RESOLVED 2026-10-31. P03 declares
+      UNIQUE (source_id, epoch_id) on source_epochs - it owns the table, and
+      the constraint is simply true - applied by new alembic revision
+      0002_epoch_identity. P07's DDL then applies cleanly and all six atomicity
+      cases pass.
+
+      Worth recording how this was found: it was invisible to review. Both
+      schemas were correct in isolation and the incompatibility existed only in
+      the composition. The first execution against a real PostgreSQL instance
+      surfaced it in under a minute.
 
   CG-06:
     title: The shared P05 library has an empty test directory

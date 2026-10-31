@@ -767,7 +767,11 @@ class PostgresSink:
                 created_at=created_at,
                 source_allowlist=allowlist,
                 provenance={
-                    "scan_id": scan.scan_id,
+                    # str(), because scan_id is a UUID here and the event
+                    # contract validates provenance field by field with the
+                    # same rules as a payload: an identity must be a non-empty
+                    # string, not a UUID object that happens to render as one.
+                    "scan_id": str(scan.scan_id),
                     "source_seq": record.source_seq,
                 },
             )

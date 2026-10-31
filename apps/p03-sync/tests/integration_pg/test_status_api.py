@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import pathlib
+
 import httpx
 import pytest
 
@@ -17,6 +19,19 @@ def client(sink, settings, sessions, metrics) -> httpx.AsyncClient:
     return httpx.AsyncClient(
         transport=httpx.ASGITransport(app=app), base_url="http://status"
     )
+
+
+def _alembic_head() -> str:
+    """The head revision of this project's migration tree."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    root = pathlib.Path(__file__).resolve().parents[2]
+    config = Config(str(root / "alembic.ini"))
+    config.set_main_option("script_location", str(root / "migrations"))
+    heads = ScriptDirectory.from_config(config).get_heads()
+    assert len(heads) == 1, f"expected one migration head, found {heads}"
+    return heads[0]
 
 
 @pytest.mark.whatif("WF3-193")
@@ -46,7 +61,12 @@ async def test_readiness_reports_the_migrated_schema_version(client) -> None:
     body = response.json()
     assert response.status_code == 200
     assert body["status"] == "ready"
-    assert body["checks"]["schema_version"] == "0001_initial"
+    # Compared against Alembic's current head rather than a literal. Pinning
+    # the string meant every new migration failed this test for the wrong
+    # reason - the readiness probe was fine, the expectation was stale. What
+    # matters is that the probe reports the version the database was actually
+    # migrated to, and that it is the newest one.
+    assert body["checks"]["schema_version"] == _alembic_head()
 
 
 @pytest.mark.whatif("WF3-193", "WF3-194")

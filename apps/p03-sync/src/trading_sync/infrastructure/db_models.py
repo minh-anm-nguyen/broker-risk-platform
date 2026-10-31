@@ -118,6 +118,14 @@ source_epochs = Table(
     CheckConstraint("generation >= 0", name="ck_epoch_generation_nonneg"),
     CheckConstraint(_in_list("status", EPOCH_STATUS_VALUES), name="ck_epoch_status"),
     UniqueConstraint("source_id", "run_id", "generation", name="uq_source_epoch"),
+    # Redundant as a uniqueness claim - epoch_id is already the primary key -
+    # but PostgreSQL will only accept a composite foreign key whose target
+    # columns carry an explicit unique constraint. Project 07's event_outbox
+    # declares FOREIGN KEY (source_id, epoch_id) REFERENCES source_epochs, so
+    # that an event cannot claim the wrong source for an epoch; without this
+    # line its DDL fails with InvalidForeignKeyError and the two schemas cannot
+    # share a database at all (contract gap CG-11).
+    UniqueConstraint("source_id", "epoch_id", name="uq_source_epoch_identity"),
 )
 
 sync_checkpoints = Table(

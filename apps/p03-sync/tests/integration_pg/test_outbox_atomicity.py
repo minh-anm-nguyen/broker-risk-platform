@@ -16,6 +16,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 
+import asyncpg
 import pytest
 from sqlalchemy import text
 
@@ -45,7 +46,7 @@ async def _rows(sessions, sql: str, **params):
 
 
 @pytest.fixture
-async def outbox_schema(sessions):
+async def outbox_schema(database_url, sessions):
     """Apply Project 07's outbox DDL beside Project 03's migrated schema.
 
     Deliberately P07's own DDL text rather than a local copy: a local copy
@@ -59,9 +60,16 @@ async def outbox_schema(sessions):
             "Project 07 is not importable: the outbox schema cannot be applied, "
             "so this case is BLOCKED_ENVIRONMENT, not passing"
         )
-    async with sessions() as session:
-        await session.execute(text(OUTBOX_POSTGRES_DDL))
-        await session.commit()
+    # Applied on a raw asyncpg connection, not through the ORM session.
+    # P07's DDL is a multi-statement script containing $$-quoted function
+    # bodies; SQLAlchemy sends statements through asyncpg's prepared-statement
+    # path, which accepts exactly one. asyncpg's own execute() runs a script.
+    dsn = database_url.replace("postgresql+asyncpg://", "postgresql://")
+    connection = await asyncpg.connect(dsn)
+    try:
+        await connection.execute(OUTBOX_POSTGRES_DDL)
+    finally:
+        await connection.close()
     return True
 
 
@@ -107,21 +115,26 @@ async def test_a_replayed_page_emits_nothing_further(
     Emitting avoidable duplicates on top would spend that guarantee for
     nothing.
     """
-    lease, scan = await _lease_and_scan(emitting_sink, epoch)
-    page = make_page(
-        deal_scan_state(),
-        [deal_payload("D1", 1)],
-        index=0,
-        snapshot_seq=10,
-        terminal=True,
-    )
-    await emitting_sink.persist_deal_page(lease, scan, page)
-    first = await _count(sessions, "SELECT count(*) FROM event_outbox")
+    def fresh_page():
+        return make_page(
+            deal_scan_state(),
+            [deal_payload("D1", 1)],
+            index=0,
+            snapshot_seq=10,
+            terminal=True,
+        )
 
-    lease2, scan2 = await _lease_and_scan(emitting_sink, epoch)
-    await emitting_sink.persist_deal_page(lease2, scan2, page)
+    # A fresh scan each round, with the lease released in between: one scanner
+    # owns a scope at a time, so asking for a second lease while the first is
+    # live correctly returns nothing. Each round re-reads the same page, which
+    # is what a restart from the durable watermark does.
+    for _ in range(3):
+        lease, scan = await _lease_and_scan(emitting_sink, epoch)
+        await emitting_sink.persist_deal_page(lease, scan, fresh_page())
+        await emitting_sink.release_lease(lease)
 
-    assert await _count(sessions, "SELECT count(*) FROM event_outbox") == first == 1
+    assert await _count(sessions, "SELECT count(*) FROM deals") == 1
+    assert await _count(sessions, "SELECT count(*) FROM event_outbox") == 1
 
 
 async def test_versions_are_contiguous_per_account_and_independent_between_accounts(

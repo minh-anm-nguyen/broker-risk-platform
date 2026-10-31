@@ -17,7 +17,18 @@ tested the happy path under a misleading name (WF5-295).
 
 from __future__ import annotations
 
-import sqlite3
+import asyncio
+import sys
+
+# psycopg's async path refuses Windows' default ProactorEventLoop and says so
+# explicitly. Without this, every RISK_PG_DSN test fails with
+# "could not connect to PostgreSQL" on Windows while the code and the server
+# are both fine - the most misleading shape a failure can take. Linux, the
+# deployment target, is unaffected either way.
+if sys.platform == "win32":
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
+import sqlite3  # noqa: E402 - must follow the event-loop policy switch
 import sys
 from datetime import timedelta
 from pathlib import Path

@@ -88,34 +88,32 @@ Counted from the tree, not estimated:
 
 ## Verified test status
 
-`make test` across every component (markers `not slow and not performance`),
-Python 3.14 on Windows:
+`make test-integrated` — every component, with real PostgreSQL 17.6 behind the
+database-backed cases. Python 3.14 on Windows:
 
 | Component | Result |
 |---|---|
-| p01-simulator | 508 passed, 25 deselected |
-| p02-connector | 510 passed, 19 deselected |
-| p03-sync | 255 passed, 123 skipped, 5 deselected |
-| p04-reconciliation | 268 passed, 28 deselected |
-| p05-risk-engine | 360 passed, 1 skipped, 9 deselected |
-| p06-api | 699 passed, 3 skipped, 25 deselected |
-| p07-outbox-relay | 379 passed, 1 skipped, 16 deselected |
-| p08-analytics | 574 passed, 13 deselected |
+| p01-simulator | 508 passed |
+| p02-connector | 509 passed, 1 xfailed |
+| p03-sync | 378 passed |
+| p04-reconciliation | 268 passed |
+| p05-risk-engine | 361 passed |
+| p06-api | 699 passed, 3 skipped |
+| p07-outbox-relay | 380 passed |
+| p08-analytics | 574 passed |
 | packages/platform-events | 7 passed |
 | packages/risk-engine | 87 passed |
-| **Total** | **3,647 passed, 0 failed, 128 skipped, 140 deselected** |
+| **Total** | **3,771 passed, 0 failed** |
 
-Read the right-hand numbers, not just the first. 123 of P03's skips are
-database-backed cases, including the six that would prove the outbox
-atomicity invariant; without `SYNC_TEST_DATABASE_URL` they are
-`BLOCKED_ENVIRONMENT`, which by the project's own rule is not a pass. The 140
-deselected are the slow and performance suites, which need a declared resource
-envelope to mean anything.
+Nothing is skipped for want of infrastructure any more. The three remaining
+skips in P06 are rate-limiting cases that skip by design, not for want of a
+server. The slow and performance suites are excluded from this sweep and pass
+separately: 16 in P07, 13 in P08.
 
 `make test` reports an empty suite as `NOT_RUN` on its own line rather than
 folding it into a green summary. That is not decoration: it is how
 `packages/risk-engine` was found to have no tests at all, and later how a
-phantom entry in the component list was found - both would otherwise have
+phantom entry in the component list was found — both would otherwise have
 looked like success.
 
 ## Quick start
@@ -169,25 +167,71 @@ The bundled `.venv` is Python 3.14; components declare `>=3.12`.
 
 No throughput, latency, HA, RPO or RTO figure has been measured.
 
+## Has it run?
+
+Yes, in part — and the parts that have run are named precisely, because "the
+tests pass" and "the system runs" are different claims.
+
+**Run as live processes**
+
+- **P01 serves HTTP.** `simulator migrate`, `simulator generate --scenario
+  single_account_open_close.json` (6 deals, 1 account, `committed_seq=8`), then
+  `simulator serve` on `127.0.0.1:8001`. `/health/ready` reports
+  `ready=true run=run_0001`; `/v1/accounts` returns a balance of `9990.95` as a
+  string; `/v1/deals` pages with a cursor; a request with no token and one with
+  a wrong token both get `401`.
+- **P02 talks to P01 over a socket.** `mt5-connector probe` negotiates the
+  contract against the live P01 and reports `run_id=run_0001`,
+  `worker_epoch=1`, and capabilities including
+  `stable_snapshot_across_entities: false` — the honest declaration, not an
+  assumption. `mt5-connector scan` completes all three entities (1 account,
+  6 deals, 3 positions, all at `snapshot_seq=8`), each returning a
+  `checkpoint_candidate` labelled *"candidate only: commit after every page of
+  this scan is durably persisted"*. That is the P02 → P03 contract working as
+  specified: the connector proposes, P03 decides.
+
+**Run against real infrastructure**
+
+PostgreSQL 17.6 on `127.0.0.1:55432`, with the three databases and two roles
+described in [`infrastructure/local-postgres.md`](infrastructure/local-postgres.md).
+Every previously blocked case now executes:
+
+| Component | Before | With PostgreSQL |
+|---|---|---|
+| p03-sync | 255 passed, **123 BLOCKED_ENVIRONMENT** | **378 passed, 0 skipped** |
+| p05-risk-engine | 360 passed, 1 skipped | **361 passed, 0 skipped** — under a `SELECT`-only role, so the GRANT-level guarantee is real |
+| p07-outbox-relay | 379 passed, 1 skipped | **380 passed, 0 skipped** |
+
+**Not run**
+
+- The `P07 → Kafka → P08` leg against a real broker. P07's slow suite uses its
+  own `EmbeddedKafka` and P08's runs in-process; both pass, so the logic is
+  tested, but no Kafka and no ClickHouse server has been involved.
+- `compose.test.yml` has never been brought up. No Docker here.
+- P06 as a live service, and therefore no end-to-end request from HTTP to a
+  served risk report.
+- The P09 harness: 31 of 32 tickets unimplemented, so **0 of 600 what-if
+  cases, 0 of 40 crash points, 0 of 20 E2E flows, 0 of 16 benchmarks. Gates
+  G0–G5 NOT EVALUATED.** No throughput, latency, HA, RPO or RTO measured.
+
 ## The eight seams
 
-The thing worth knowing about this codebase. Every component's own suite passed
-while four of the eight seams between them were broken, because each component
-was tested against its own idea of its neighbour: P07 against a 336-line
-stand-in P03 it wrote itself, P06 against a reference engine, P05's reader
-against SQLite shaped like P03. Each was internally consistent, and together
-they did not form a system.
+Every component's own suite passed while four of the eight seams between them
+were broken, because each component was tested against its own idea of its
+neighbour: P07 against a 336-line stand-in P03 it wrote itself, P06 against a
+reference engine. Each was internally consistent, and together they did not
+form a system.
 
 | # | Seam | State |
 |---|---|---|
-| 1 | P01 → P02 | real - `simulator_sync_http` driver over HTTP |
-| 2 | P02 → P03 | real - `source_adapter.py` over httpx |
-| 3 | P03 → P04 | real - P04 reads P03's tables and boots P01 in-process |
-| 4 | P03/P04 → P05 | real - `p03_reader.py` is dialect-aware for both SQLite and PostgreSQL |
-| 5 | P05 → P06 | **scoped** - reference library, not the full engine (CG-01) |
-| 6 | P03 → P07 | **implemented, unproven** - was absent entirely (CG-08) |
-| 7 | P07 schema ownership | fixed - P07 no longer creates P03's tables (CG-07) |
-| 8 | P07 → P08 | real - topics match |
+| 1 | P01 → P02 | **proven live** — two processes, HTTP, all three entities scanned |
+| 2 | P02 → P03 | real — `source_adapter.py` over httpx; contract honoured by the candidate checkpoint |
+| 3 | P03 → P04 | real — P04 reads P03's tables and boots P01 in-process |
+| 4 | P03/P04 → P05 | **proven** — dialect-aware reader, verified against PostgreSQL under a read-only role |
+| 5 | P05 → P06 | **scoped** — reference library, not the full engine (CG-01) |
+| 6 | P03 → P07 | **proven** — the outbox row commits in the Deal's transaction (CG-08, CG-11) |
+| 7 | P07 schema ownership | fixed — P07 no longer creates P03's tables by default (CG-07) |
+| 8 | P07 → P08 | topics match; **never run against a real broker** |
 
 ## Contract gaps
 

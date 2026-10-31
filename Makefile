@@ -33,7 +33,8 @@ COMPOSE := docker compose -f infrastructure/compose.test.yml
 # than the path being short.
 RISK_ENGINE_SRC := $(CURDIR)/packages/risk-engine/src
 PLATFORM_EVENTS_SRC := $(CURDIR)/packages/platform-events/src
-PYPATH := src$(PATHSEP)$(RISK_ENGINE_SRC)$(PATHSEP)$(PLATFORM_EVENTS_SRC)
+P07_SRC := $(CURDIR)/apps/p07-outbox-relay/src
+PYPATH := src$(PATHSEP)$(RISK_ENGINE_SRC)$(PATHSEP)$(PLATFORM_EVENTS_SRC)$(PATHSEP)$(P07_SRC)
 
 # Every component with a tests/ directory, in dependency order.
 COMPONENTS := \
@@ -60,6 +61,8 @@ help:
 	@echo "                         manifest and the code (P09 T09-01)"
 	@echo "  make contracts-strict  Same, but an open contract gap fails. Use at G1."
 	@echo "  make test              Fast test sweep across every component"
+	@echo "  make test-integrated   Same sweep with real PostgreSQL - see"
+	@echo "                         infrastructure/local-postgres.md"
 	@echo "  make test-one C=apps/p03-sync   One component's fast suite"
 	@echo "  make test-slow         Include slow and performance suites"
 	@echo "  make up / make down    T1 integration topology (needs Docker)"
@@ -119,6 +122,24 @@ test-slow:
 			-q --no-header ) || exit 1; \
 	done
 
+# -------------------------------------------------------------- integrated ---
+
+# The same sweep, with the PostgreSQL-backed cases actually running instead of
+# reporting BLOCKED_ENVIRONMENT. See infrastructure/local-postgres.md for the
+# databases, the two roles and why they are separate. SYNC_DATABASE_URL is
+# deliberately NOT set: P03 has a case that asserts the loud failure when it is
+# absent, and setting it would fail that case for the wrong reason.
+PG_HOST ?= 127.0.0.1
+PG_PORT ?= 55432
+
+.PHONY: test-integrated
+test-integrated:
+	@command -v pg_isready >/dev/null 2>&1 && pg_isready -h $(PG_HOST) -p $(PG_PORT) -q \
+		|| echo "note: could not confirm PostgreSQL on $(PG_HOST):$(PG_PORT); DB-backed cases will report BLOCKED_ENVIRONMENT"
+	@SYNC_TEST_DATABASE_URL="postgresql+asyncpg://postgres@$(PG_HOST):$(PG_PORT)/trading_sync_test" \
+		OUTBOX_PG_DSN="postgresql://postgres@$(PG_HOST):$(PG_PORT)/broker_platform" \
+		RISK_PG_DSN="postgresql://risk_reader@$(PG_HOST):$(PG_PORT)/broker_risk" \
+		$(MAKE) --no-print-directory test
 # ---------------------------------------------------------------- topology ---
 
 .PHONY: up

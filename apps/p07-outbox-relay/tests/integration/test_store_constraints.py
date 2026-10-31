@@ -245,6 +245,23 @@ class TestPostgresParity:
             # This test inserts into source_epochs itself, so it needs the P03
             # stand-in schema and asks for it explicitly (contract gap CG-07).
             store.migrate(include_p03_standin=True)
+
+            # Remove this test's own rows from a previous run. The assertions
+            # below are about a *first* write being created, so a leftover row
+            # makes them fail for the wrong reason - which is exactly what
+            # happened the first time this case was allowed to run instead of
+            # skipping for want of a DSN. Scoped to this test's source and
+            # epoch, so it cannot disturb anything else in the database.
+            with store.transaction() as tx:
+                tx.execute(
+                    "DELETE FROM event_outbox WHERE source_id = %s AND epoch_id = %s",
+                    ("sim-broker-01", EPOCH_A),
+                )
+                tx.execute(
+                    "DELETE FROM outbox_aggregate_heads WHERE source_id = %s AND epoch_id = %s",
+                    ("sim-broker-01", EPOCH_A),
+                )
+
             with store.transaction() as tx:
                 tx.execute(
                     "INSERT INTO source_epochs (epoch_id, source_id, status, opened_at) "
