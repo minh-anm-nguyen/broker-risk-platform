@@ -46,6 +46,12 @@ markers = [
     "load: benchmark and arrival-rate work, B09-01..16 (T09-25..28)",
     "dr: backup, restore and RPO/RTO drills (T09-31)",
     "slow: excluded from the per-commit sweep",
+    # Declared although nothing here carries it. The root Makefile filters
+    # every component with one expression, `-m "not slow and not performance"`,
+    # and --strict-markers validates the names used in -m as well as the ones
+    # applied to tests. Without this line pytest exits with a usage error and
+    # this tree silently never runs.
+    "performance: benchmark and load tests",
 ]
 # A scenario that silently stops asserting is worse than one that fails.
 filterwarnings = ["error::DeprecationWarning:runner.*", "error::DeprecationWarning:oracle.*"]

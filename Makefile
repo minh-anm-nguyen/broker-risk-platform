@@ -47,7 +47,8 @@ COMPONENTS := \
 	apps/p07-outbox-relay \
 	apps/p08-analytics \
 	packages/platform-events \
-	packages/risk-engine
+	packages/risk-engine \
+	test-platform
 
 # Excluded from the default sweep: these take minutes and need a declared
 # resource envelope to mean anything (P09 section 12.1).
@@ -61,6 +62,7 @@ help:
 	@echo "                         manifest and the code (P09 T09-01)"
 	@echo "  make contracts-strict  Same, but an open contract gap fails. Use at G1."
 	@echo "  make test              Fast test sweep across every component"
+	@echo "  make oracle            Independent oracle against a live platform"
 	@echo "  make test-integrated   Same sweep with real PostgreSQL - see"
 	@echo "                         infrastructure/local-postgres.md"
 	@echo "  make test-one C=apps/p03-sync   One component's fast suite"
@@ -140,6 +142,19 @@ test-integrated:
 		OUTBOX_PG_DSN="postgresql://postgres@$(PG_HOST):$(PG_PORT)/broker_platform" \
 		RISK_PG_DSN="postgresql://risk_reader@$(PG_HOST):$(PG_PORT)/broker_risk" \
 		$(MAKE) --no-print-directory test
+# ----------------------------------------------------------------- oracle ---
+
+# The independent oracle (T09-07, T09-08) against a live platform. Read-only:
+# every call it makes is a GET or a SELECT. It imports no component package,
+# which is the point - an oracle sharing a library with what it checks cannot
+# detect a wrong rounding rule or a missing translation.
+ORACLE_SOURCE ?= http://127.0.0.1:8001
+ORACLE_DSN    ?= postgresql://postgres@127.0.0.1:55432/broker_risk
+
+.PHONY: oracle
+oracle:
+	@$(PY) test-platform/oracle/check.py \
+		--source-url "$(ORACLE_SOURCE)" --dsn "$(ORACLE_DSN)"
 # ---------------------------------------------------------------- topology ---
 
 .PHONY: up
