@@ -201,7 +201,7 @@ def check_identity(manifest: dict[str, Any], report: Report) -> None:
 def report_gaps(manifest: dict[str, Any], report: Report) -> list[str]:
     open_gaps: list[str] = []
     for gap_id, gap in manifest.get("gaps", {}).items():
-        if gap.get("status") == "accepted-by-design":
+        if gap.get("status") in {"accepted-by-design", "resolved"}:
             continue
         open_gaps.append(gap_id)
         severity = str(gap.get("severity", "unknown")).upper()

@@ -130,7 +130,12 @@ def build_pipeline(
     )
 
     store = SqliteOutboxStore(resolved.sqlite_path, clock=active_clock, synchronous=synchronous)
-    store.migrate()
+    # This builder is P07's self-contained lab: it also constructs the
+    # EmbeddedKafka broker and the SyncService stand-in that plays the part of
+    # Project 03. It therefore owns the P03 stand-in schema and asks for it
+    # explicitly. A deployment sharing Project 03's database must not use this
+    # builder (contract gap CG-07).
+    store.migrate(include_p03_standin=True)
 
     writer = OutboxWriter(
         source_allowlist=resolved.source_allowlist,

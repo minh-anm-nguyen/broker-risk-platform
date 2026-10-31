@@ -308,6 +308,66 @@ gaps:
     severity: high
     owner: unassigned
 
+  CG-07:
+    title: P07's migrate() creates stand-in copies of P03-owned tables
+    detail: >
+      outbox/persistence/schema_sql.py carries P03_SQLITE_DDL and
+      P03_POSTGRES_DDL, a deliberate and clearly labelled stand-in for
+      source_epochs, deals, sync_runs and the two current-state tables -
+      written when, in its own words, "Project 03 is not implemented in this
+      repository". The DDL is correctly separated from P07's own
+      OUTBOX_*/CONSUMER_* definitions. The defect is the wiring:
+      PostgresStore.migrate() (postgres_store.py:241) executes
+      P03_POSTGRES_DDL before OUTBOX_POSTGRES_DDL, and SqliteStore does the
+      same, so the stand-in is on the production path rather than in a fixture.
+      Two of the names also disagree with P03: P03 declares account_staging and
+      position_staging (singular), the stand-in has them plural.
+    consequence: >
+      Pointing P07 at the real P03 database mixes ownership silently. Because
+      the DDL is CREATE TABLE IF NOT EXISTS, nothing errors: P07 accepts P03's
+      `deals` - which has different columns and an UPDATE/DELETE-rejecting
+      trigger - and then writes to it through a stand-in that was never run
+      against those constraints.
+    severity: high
+    owner: unassigned
+    status: resolved
+    resolution: >
+      RESOLVED 2026-10-31. Both stores' migrate() now take a keyword-only
+      include_p03_standin, defaulting to False, so the default creates only
+      event_outbox, outbox_aggregate_heads and outbox_attempts. P07's
+      self-contained lab builder (pipeline.build_pipeline) and the one
+      PostgreSQL constraint test ask for the stand-in explicitly. The CLI
+      exposes `outbox migrate --with-p03-standin` and reports
+      p03_standin_created in its output, so an operator can see which
+      ownership they chose. Verified: 379 P07 tests pass, 1 skipped.
+      Still open underneath this: P03's alembic revision is now the only
+      creator of its own tables, but nothing yet asserts that the two schemas
+      agree when both are applied to one database - that needs a PostgreSQL
+      instance and belongs with CG-08.
+
+  CG-08:
+    title: The real Project 03 never writes an outbox row
+    detail: >
+      P07's central guarantee is that the business mutation and its outbox row
+      commit in one transaction (design decision 1). The only caller that does
+      this is outbox/p03/sync_service.py, a 336-line stand-in whose own
+      docstring states "Project 03 is a separate mini-project and is not
+      implemented in this repository". P03 is now implemented, and `event_outbox`
+      appears nowhere in its source.
+    consequence: >
+      The P03 -> P07 -> Kafka -> P08 chain does not exist. Every P07 atomicity
+      test passes against P07's own stand-in caller, so the guarantee is
+      demonstrated but not delivered. P07's own docstring names this risk: "if
+      the real P03 commits the Deal and writes the outbox row in a second
+      transaction, the invariant fails and integration must be blocked until P03
+      changes."
+    severity: critical
+    owner: unassigned
+    resolution: >
+      P03's deal-insert transaction calls OutboxWriter inside its own unit of
+      work. outbox/p03/sync_service.py is retired to a test double and labelled
+      as one.
+
   CG-06:
     title: The shared P05 library has an empty test directory
     detail: >
@@ -322,9 +382,20 @@ gaps:
       passing it, because an empty suite is not evidence (P09 section 19.3).
     severity: high
     owner: unassigned
-    resolution: port the arithmetic golden vectors from apps/p05-risk-engine/tests
-      down to the shared library, or state that the library is covered only
-      through P06 and accept that scope explicitly
+    status: resolved
+    resolution: >
+      RESOLVED 2026-10-31. packages/risk-engine/tests/test_decimal_policy.py
+      adds 87 passing tests over the money primitives: float and bool refusal,
+      the fourteen non-canonical string forms, non-finite rejection,
+      ROUND_HALF_EVEN pinned in both directions (0.125 down, 0.135 up),
+      per-currency scale including JPY's zero, negative-zero collapse,
+      exponent-form projection, wire-bound refusal, unit trimming at
+      UNIT_MAX_SCALE, the str-subclass rule in is_canonical_decimal_string, and
+      full anchoring of DECIMAL_STRING_RE. Every expected value was taken from
+      running the code, not from reading it. pyproject now carries
+      pythonpath=["src"] so the suite runs standalone, not only via the root
+      Makefile. Still scoped: the engine's own compute() path is covered
+      through P06's suite, not here.
 
   CG-05:
     title: Fee coverage is structurally NOT_AVAILABLE

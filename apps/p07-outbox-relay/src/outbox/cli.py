@@ -42,8 +42,18 @@ def _print(payload: Any) -> None:
 def cmd_migrate(args: argparse.Namespace) -> int:
     settings = load_settings()
     store = open_store(settings, clock=RealClock())
-    store.migrate()
-    _print({"migrated": True, "backend": settings.store_backend})
+    standin = bool(getattr(args, "with_p03_standin", False))
+    store.migrate(include_p03_standin=standin)
+    _print(
+        {
+            "migrated": True,
+            "backend": settings.store_backend,
+            # Reported, not assumed: an operator reading this output needs to
+            # know whether the command took ownership of Project 03's table
+            # names or created only P07's own (contract gap CG-07).
+            "p03_standin_created": standin,
+        }
+    )
     return 0
 
 
@@ -252,7 +262,19 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--log-level", default="INFO")
     sub = parser.add_subparsers(dest="command", required=True)
 
-    sub.add_parser("migrate", help="create the outbox schema").set_defaults(func=cmd_migrate)
+    migrate_parser = sub.add_parser("migrate", help="create the outbox schema")
+    migrate_parser.add_argument(
+        "--with-p03-standin",
+        action="store_true",
+        help=(
+            "also create the minimal stand-in for Project 03's tables. Required "
+            "for a standalone P07 lab, because event_outbox has a foreign key "
+            "into source_epochs. Never pass this against Project 03's own "
+            "database: the DDL is IF NOT EXISTS and would silently accept P03's "
+            "schema instead of rejecting the overlap."
+        ),
+    )
+    migrate_parser.set_defaults(func=cmd_migrate)
     sub.add_parser("status", help="print outbox backlog and storage").set_defaults(func=cmd_status)
     sub.add_parser("relay", help="run the relay worker").set_defaults(func=cmd_relay)
 

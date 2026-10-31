@@ -242,7 +242,9 @@ class TestPostgresParity:
 
         store = PostgresOutboxStore(pg_dsn, clock=clock)
         try:
-            store.migrate()
+            # This test inserts into source_epochs itself, so it needs the P03
+            # stand-in schema and asks for it explicitly (contract gap CG-07).
+            store.migrate(include_p03_standin=True)
             with store.transaction() as tx:
                 tx.execute(
                     "INSERT INTO source_epochs (epoch_id, source_id, status, opened_at) "

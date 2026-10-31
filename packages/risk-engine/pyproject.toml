@@ -15,6 +15,18 @@ test = ["pytest>=8.3", "hypothesis>=6.112"]
 [tool.setuptools.packages.find]
 where = ["src"]
 
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# So the suite runs with a bare `pytest` from this directory, not only through
+# the root Makefile. An uninstalled library whose tests cannot be run on their
+# own is how a suite quietly stops being run at all.
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "unit: fast in-process checks",
+    "property: Hypothesis property tests",
+]
+
 [tool.ruff]
 line-length = 110
 target-version = "py312"

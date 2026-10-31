@@ -250,9 +250,18 @@ class SqliteOutboxStore:
                 pass
         self._local = threading.local()
 
-    def migrate(self) -> None:
+    def migrate(self, *, include_p03_standin: bool = False) -> None:
+        """Create the tables this component owns.
+
+        See the PostgreSQL store's ``migrate`` for why the Project 03 stand-in
+        is opt-in rather than automatic (contract gap CG-07). In short: against
+        the real P03 database the stand-in DDL would be accepted silently
+        rather than rejected, and P07 would then write through a caller that
+        never met P03's constraints.
+        """
         conn = self.conn
-        conn.executescript(P03_SQLITE_DDL)
+        if include_p03_standin:
+            conn.executescript(P03_SQLITE_DDL)
         conn.executescript(OUTBOX_SQLITE_DDL)
 
     @contextmanager

@@ -238,10 +238,28 @@ class PostgresOutboxStore:
                 pass
         self._conns = []
 
-    def migrate(self) -> None:
+    def migrate(self, *, include_p03_standin: bool = False) -> None:
+        """Create the tables this component owns.
+
+        ``include_p03_standin`` additionally creates the minimal stand-in for
+        Project 03's ``source_epochs``, ``deals``, ``sync_runs`` and
+        current-state tables. A standalone P07 lab needs it, because
+        ``event_outbox`` carries a foreign key into ``source_epochs`` and
+        cannot be created without it.
+
+        It defaults to False so that pointing this store at the real Project 03
+        database cannot quietly take ownership of P03's schema. The stand-in
+        DDL is ``CREATE TABLE IF NOT EXISTS``, so it would not error against
+        the real tables - it would accept them, including a ``deals`` table
+        with different columns and an UPDATE/DELETE-rejecting trigger, and then
+        write through a caller that was never run against those constraints
+        (contract gap CG-07). Failing to create ``event_outbox`` for want of a
+        declared ``source_epochs`` is the better outcome: it is loud.
+        """
         with self.conn.cursor() as cursor:
             cursor.execute("CREATE EXTENSION IF NOT EXISTS pgcrypto")
-            cursor.execute(P03_POSTGRES_DDL)
+            if include_p03_standin:
+                cursor.execute(P03_POSTGRES_DDL)
             cursor.execute(OUTBOX_POSTGRES_DDL)
 
     @contextmanager
