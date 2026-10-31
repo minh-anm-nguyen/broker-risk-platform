@@ -1,0 +1,38 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "platform-events"
+version = "1.0.0"
+description = "Shared event contract for the broker risk platform: envelope, identity, schema, routing, money and canonical serialisation. No database, no broker."
+requires-python = ">=3.12"
+# Deliberately empty. The moment this package needs a driver, a client or a
+# settings loader, it has stopped being a contract that a stranger's consumer
+# can import.
+dependencies = []
+
+[project.optional-dependencies]
+test = ["pytest>=8.3", "hypothesis>=6.112"]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-q --strict-markers"
+markers = [
+    "unit: fast in-process checks",
+    "slow: excluded from the per-commit sweep",
+    "performance: benchmark and load tests",
+    # Declared although nothing here is marked with them. The root Makefile
+    # filters every component with one expression, `-m "not slow and not
+    # performance"`, and --strict-markers validates the names used in -m as
+    # well as the ones applied to tests. Without these two lines pytest exits
+    # with a usage error and this package silently never runs.
+]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

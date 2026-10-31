@@ -198,15 +198,34 @@ def check_identity(manifest: dict[str, Any], report: Report) -> None:
             report.ok()
 
 
+#: A gap with one of these statuses is closed and is not reported.
+_CLOSED_STATUSES = frozenset({"accepted-by-design", "resolved"})
+
+#: A gap that has been decided but not closed. It still blocks, because a
+#: decision is not a verification: `implemented-unverified` means the code
+#: exists and has never run against the thing it has to work against, and
+#: `scoped`/`deferred` mean a release carrying it needs the scope label that
+#: P09 section 19.1 requires. Reported with the status visible, so nobody has
+#: to open the manifest to learn that the gap was thought about.
+_DECIDED_STATUSES = frozenset({"implemented-unverified", "scoped", "deferred"})
+
+
 def report_gaps(manifest: dict[str, Any], report: Report) -> list[str]:
     open_gaps: list[str] = []
     for gap_id, gap in manifest.get("gaps", {}).items():
-        if gap.get("status") in {"accepted-by-design", "resolved"}:
+        status = gap.get("status")
+        if status in _CLOSED_STATUSES:
             continue
         open_gaps.append(gap_id)
         severity = str(gap.get("severity", "unknown")).upper()
         owner = gap.get("owner", "unassigned")
-        report.warn(f"GAP {gap_id} [{severity}, owner={owner}]: {gap.get('title')}")
+        if status in _DECIDED_STATUSES:
+            label = f"{severity}, {status}, owner={owner}"
+        elif status:
+            label = f"{severity}, {status}, owner={owner}"
+        else:
+            label = f"{severity}, UNDECIDED, owner={owner}"
+        report.warn(f"GAP {gap_id} [{label}]: {gap.get('title')}")
     return open_gaps
 
 

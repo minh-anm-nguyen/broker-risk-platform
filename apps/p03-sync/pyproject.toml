@@ -8,6 +8,10 @@ version = "0.1.0"
 description = "Project 03 - Trading Data Synchronization (MT5 account/position/deal ingestion into PostgreSQL)"
 requires-python = ">=3.12"
 dependencies = [
+    # The shared event contract. Pure: no driver, no broker. Project 03 builds
+    # the outbox row with it and persists it with its own session, which is the
+    # only way the Deal and its event can share a transaction.
+    "platform-events",
     "sqlalchemy>=2.1,<2.2",
     "asyncpg>=0.32,<0.33",
     "alembic>=1.20,<1.21",

@@ -1,5 +1,11 @@
 # Local lab: the connector against a Project 01 simulator.
 #
+# Environment names and the port here are Project 01's real ones: the SIM_
+# prefix and 8001. They previously read SIMULATOR_* and 8000, which meant
+# the simulator started without the tokens it needs and the connector
+# dialled a closed port (contract gap CG-03). For the full topology use
+# infrastructure/compose.test.yml; this file is a two-service lab.
+#
 # The two planes are kept apart on purpose. The connector holds a data-plane
 # token and is attached only to the data-plane network, so it has no route to
 # the control plane at all; the test harness holds the admin token and drives
@@ -10,10 +16,15 @@ services:
     # Project 01, built from its own directory. This file does not own it.
     build: ../p01-simulator
     environment:
-      SIMULATOR_DATA_TOKEN: ${SIMULATOR_DATA_TOKEN:?set a data-plane token}
-      SIMULATOR_ADMIN_TOKEN: ${SIMULATOR_ADMIN_TOKEN:?set an admin token}
+      SIM_DATA_TOKEN: ${SIM_DATA_TOKEN:?set a data-plane token}
+      SIM_ADMIN_TOKEN: ${SIM_ADMIN_TOKEN:?set an admin token}
+      # Project 01 binds non-loopback inside the container and refuses to
+      # start without this, by design.
+      SIM_CURSOR_SIGNING_KEY: ${SIM_CURSOR_SIGNING_KEY:?set a cursor signing key}
+      SIM_HOST: 0.0.0.0
+      SIM_PORT: "8001"
     ports:
-      - "8000:8000"
+      - "8001:8001"
     networks:
       - data-plane
       - control-plane
@@ -26,14 +37,14 @@ services:
       CONNECTOR_SOURCE_ID: broker-sim-01
       CONNECTOR_SOURCE_KIND: simulator
       CONNECTOR_DRIVER: simulator_sync_http
-      CONNECTOR_BASE_URL: http://mt5-simulator:8000
-      CONNECTOR_TOKEN_ENV: SIMULATOR_DATA_TOKEN
+      CONNECTOR_BASE_URL: http://mt5-simulator:8001
+      CONNECTOR_TOKEN_ENV: SIM_DATA_TOKEN
       CONNECTOR_WORKER_MODE: ${CONNECTOR_WORKER_MODE:-thread}
       CONNECTOR_MAX_QUEUE_PENDING: "32"
       CONNECTOR_PAGE_TOTAL_DEADLINE_MS: "3000"
       CONNECTOR_QUEUE_WAIT_CAP_MS: "500"
       # Data plane only. The admin token is not present in this container.
-      SIMULATOR_DATA_TOKEN: ${SIMULATOR_DATA_TOKEN:?set a data-plane token}
+      SIM_DATA_TOKEN: ${SIM_DATA_TOKEN:?set a data-plane token}
     ports:
       - "8080:8080"
     networks:

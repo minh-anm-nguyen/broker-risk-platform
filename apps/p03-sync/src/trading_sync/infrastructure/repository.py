@@ -30,10 +30,14 @@ import uuid
 from datetime import datetime
 from typing import Any, Mapping, Sequence
 
+from datetime import UTC
+from collections.abc import Callable
+
 from sqlalchemy import BigInteger, Text, Uuid, and_, func, insert, literal, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from trading_sync.application.outbox_emission import build_deal_event, outbox_row
 from trading_sync.application.ports import (
     EpochHandle,
     Lease,
@@ -54,17 +58,19 @@ from trading_sync.domain.snapshots import (
 )
 from trading_sync.errors import (
     ConfigurationError,
+    DuplicateKeyConflict,
     EpochBlockedError,
     FilterScopeError,
     ImmutableDealConflict,
     IncompleteScanError,
-    DuplicateKeyConflict,
     LeaseLostError,
+    OutboxEmissionError,
     ReceiptConflict,
     StaleScanError,
     SyncError,
 )
 from trading_sync.infrastructure import db_models as m
+from trading_sync.infrastructure import outbox_models as ob
 from trading_sync.infrastructure.db import transaction
 from trading_sync.infrastructure.logging import get_logger, hash_source_key, sanitize
 from trading_sync.infrastructure.metrics import SyncMetrics
@@ -128,12 +134,16 @@ class PostgresSink:
         *,
         metrics: SyncMetrics | None = None,
         barriers: Any | None = None,
+        clock: Callable[[], datetime] | None = None,
     ) -> None:
         self._factory = factory
         self._settings = settings
         self._metrics = metrics
         #: Test-only crash barriers; ``None`` in any deployed process.
         self._barriers = barriers
+        #: Injectable so an outbox row's ``created_at`` is reproducible in a
+        #: test. Wall clock in a deployed process.
+        self._clock = clock or (lambda: datetime.now(UTC))
 
     # -- barriers -------------------------------------------------------------
 
@@ -614,6 +624,7 @@ class PostgresSink:
 
             records: Sequence[DealRecord] = page.records  # type: ignore[assignment]
             inserted = 0
+            emitted = 0
             if records:
                 ordered = sorted(records, key=lambda record: record.deal_id)
                 values = [
@@ -654,6 +665,14 @@ class PostgresSink:
                 if declined:
                     await self._verify_identical_deals(session, scan, declined)
 
+                if inserted_ids and self._settings.sync.emit_outbox_events:
+                    emitted = await self._emit_deal_events(
+                        session,
+                        scan,
+                        [record for record in ordered if record.deal_id in inserted_ids],
+                    )
+                    await self._barrier("K04b_after_outbox_insert_before_receipt")
+
             await self._store_receipt(session, scan, page)
             await self._barrier("K05_after_receipt_before_commit")
             await session.execute(
@@ -676,11 +695,127 @@ class PostgresSink:
                 self._metrics.deals_duplicate_total.labels(entity=str(scan.entity)).inc(
                     page.duplicate_count
                 )
+            # After the commit, like every other counter here. Incrementing
+            # inside the transaction would over-report each page that rolled
+            # back afterwards, and an events-emitted count that exceeds the
+            # rows in event_outbox is exactly the kind of metric that sends an
+            # operator looking for a bug in the relay.
+            if emitted:
+                self._metrics_outbox_emitted(emitted)
         return PageCommitResult(
             page_index=page.page_index,
             inserted=inserted,
             duplicates=page.duplicate_count,
         )
+
+    # -- outbox emission (contract gap CG-08) ---------------------------------
+
+    async def _emit_deal_events(
+        self,
+        session: AsyncSession,
+        scan: ScanHandle,
+        records: Sequence[DealRecord],
+    ) -> int:
+        """Insert one ``event_outbox`` row per newly committed Deal.
+
+        Runs on the caller's ``session``, so the rows land in the same
+        transaction as the Deals themselves. That is the entire reason this
+        exists here instead of in Project 07: P07's own writer is synchronous
+        psycopg and would open a second connection, which is a second
+        transaction, which is the arrangement its first design decision
+        forbids.
+
+        Ordering within an aggregate comes from ``outbox_aggregate_heads``.
+        The reservation is an ``ON CONFLICT DO UPDATE`` that sets
+        ``last_version`` to itself: a no-op write whose only purpose is to take
+        the row lock. ``DO NOTHING`` would not lock it, and two concurrent
+        writers could then both read the same ``last_version`` and allocate the
+        same version to different events.
+
+        Anything that cannot be expressed as a valid event raises, the
+        transaction rolls back, and the Deals are not committed either. A Deal
+        that exists without its event is the one outcome this must never
+        produce (contract gap CG-10 describes the case that triggers it).
+        """
+        source_id = self._settings.source.source_id
+        allowlist = (source_id,)
+        created_at = self._clock()
+        emitted = 0
+
+        for account_id in sorted({record.account_id for record in records}):
+            await session.execute(
+                pg_insert(ob.outbox_aggregate_heads)
+                .values(
+                    source_id=source_id,
+                    epoch_id=scan.epoch_id,
+                    aggregate_key=account_id,
+                    last_version=0,
+                )
+                .on_conflict_do_update(
+                    index_elements=["source_id", "epoch_id", "aggregate_key"],
+                    set_={"last_version": ob.outbox_aggregate_heads.c.last_version},
+                )
+            )
+
+        for record in sorted(records, key=lambda item: (item.account_id, item.source_seq)):
+            version = await self._next_aggregate_version(session, scan, record.account_id)
+            event = build_deal_event(
+                record,
+                source_id=source_id,
+                epoch_id=scan.epoch_id,
+                aggregate_version=version,
+                created_at=created_at,
+                source_allowlist=allowlist,
+                provenance={
+                    "scan_id": scan.scan_id,
+                    "source_seq": record.source_seq,
+                },
+            )
+            await session.execute(
+                insert(ob.event_outbox).values(outbox_row(event, created_at=created_at))
+            )
+            emitted += 1
+
+        return emitted
+
+    async def _next_aggregate_version(
+        self, session: AsyncSession, scan: ScanHandle, account_id: str
+    ) -> int:
+        """Allocate the next version for one aggregate, under the row lock."""
+        source_id = self._settings.source.source_id
+        heads = ob.outbox_aggregate_heads
+        result = await session.execute(
+            update(heads)
+            .where(
+                and_(
+                    heads.c.source_id == source_id,
+                    heads.c.epoch_id == scan.epoch_id,
+                    heads.c.aggregate_key == account_id,
+                )
+            )
+            .values(last_version=heads.c.last_version + 1)
+            .returning(heads.c.last_version)
+        )
+        version = result.scalar_one_or_none()
+        if version is None:
+            # The reservation above should have created the row. If it is gone,
+            # something else deleted it mid-transaction; allocating a version
+            # from nothing would risk reusing one.
+            raise OutboxEmissionError(
+                f"aggregate head missing for {source_id}/{scan.epoch_id}/{account_id}"
+            )
+        return int(version)
+
+    def _metrics_outbox_emitted(self, count: int) -> None:
+        """Count emitted events when the metric exists.
+
+        Guarded rather than assumed: the metric set is defined in P03's own
+        metrics module, and emission was added after it.
+        """
+        counter = getattr(self._metrics, "outbox_events_emitted_total", None)
+        if counter is None:
+            return
+        counter.labels(source_group=self._settings.source.source_id).inc(count)
 
     async def _verify_identical_deals(
         self,

@@ -1,19 +1,25 @@
-"""A stand-in for Project 03's sync worker -- the call site, not the service.
+"""TEST DOUBLE for Project 03's sync worker -- the call site, not the service.
 
-Project 03 is a separate mini-project and is not implemented in this
-repository. But the outbox writer's central guarantee is about *its caller's*
-transaction, so there has to be a caller: something that inserts Deals and
-publishes scans in real transactions, with the fault hooks from design section
-15 in the right places, or the atomicity invariants cannot be executed at all.
+**Not the integration path.** Project 03 is implemented, at
+``apps/p03-sync``, and since 2026-10-31 it writes its own outbox row inside its
+own transaction (``trading_sync.application.outbox_emission`` plus the insert
+in ``persist_deal_page``). That is the real producer. This module exists only
+so P07's own suite has a caller it controls, with the fault hooks from design
+section 15 in the right places; without one, the atomicity invariants cannot be
+executed at all inside this repository.
 
-This is that caller, and the boundary is deliberate. It owns the P03 tables and
-the transaction; it calls :class:`~outbox.writer.OutboxWriter` from inside that
-transaction and never otherwise. What it is *not* is a model of P03's real
-behaviour -- no paging, no connector, no checkpoint protocol, no lease renewal.
-Design section 6.3 carries the matching warning in the other direction: if the
-real P03 commits the Deal and writes the outbox row in a *second* transaction,
-the invariant fails and integration must be blocked until P03 changes. Nothing
-here can detect that on P03's behalf.
+Read it as a fixture, not as a model of P03. It has no paging, no connector, no
+checkpoint protocol and no lease renewal. Its tables come from
+``P03_SQLITE_DDL``/``P03_POSTGRES_DDL``, which ``migrate()`` now creates only
+when asked (contract gap CG-07), so nothing here touches the real P03 schema.
+
+The warning this docstring used to carry still applies, now to the real
+producer rather than to a hypothetical one: if P03 ever commits the Deal and
+writes the outbox row in a *second* transaction, the invariant fails and
+integration must be blocked until that changes. Nothing here can detect it on
+P03's behalf - that is what
+``apps/p03-sync/tests/integration_pg/test_outbox_atomicity.py`` is for, and it
+needs a real PostgreSQL instance to say anything at all.
 
 The duplicate-Deal path is worth reading. ``INSERT ... ON CONFLICT DO NOTHING``
 means a re-fetched page inserts nothing, and the hash of the existing row is

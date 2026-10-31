@@ -89,6 +89,21 @@ class SyncConfig(BaseModel):
     scan_retry_max_seconds: Annotated[float, Field(gt=0)] = 60.0
     deal_batch_size: Annotated[int, Field(gt=0, le=DEFAULT_MAX_PAGE_ITEMS)] = 500
     stable_snapshot_required: bool = True
+    #: Write a Project 07 ``event_outbox`` row inside the same transaction as
+    #: each newly inserted Deal.
+    #:
+    #: False is the standalone posture: Project 03 works on its own, and
+    #: ``event_outbox`` need not exist. It also means a committed Deal produces
+    #: no event, so the Project 03 -> 07 -> Kafka -> 08 chain does not exist.
+    #: That is a declared capability gap, not a silent one: readiness reports
+    #: it, and nothing downstream may be described as fed by this service while
+    #: it is False (contract gap CG-08).
+    #:
+    #: True requires ``outbox migrate`` to have created the outbox tables in
+    #: this same database. Emission then fails closed - if an event cannot be
+    #: built, the page transaction rolls back and the Deal is not committed
+    #: either, so there is no state where a Deal exists without its event.
+    emit_outbox_events: bool = False
     #: Fraction of the source cursor TTL a scan may consume (design 16.2 wants
     #: at least 20% margin).
     cursor_ttl_margin: Annotated[float, Field(gt=0, lt=1)] = 0.8

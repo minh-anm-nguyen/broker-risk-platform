@@ -10,8 +10,8 @@ Design document: [`Project_09_Integration_Testing_and_Performance_System_Design.
 
 | Piece | §17 path | State |
 |---|---|---|
-| Contract freeze gate (T09-01) | `runner/contracts.py` | **Working.** 68 checks, run via `make contracts` |
-| Contract manifest + schemas | `../contracts/` | **Working.** 1 manifest, 3 JSON Schemas, 5 recorded gaps |
+| Contract freeze gate (T09-01) | `runner/contracts.py` | **Working.** 71 checks, run via `make contracts`. Reports every gap with its decision status, so an undecided gap is visible as `UNDECIDED` |
+| Contract manifest + schemas | `../contracts/` | **Working.** 1 manifest, 3 JSON Schemas, 9 gaps - 5 closed, 4 open with recorded decisions |
 | T1 topology (T09-03) | `../infrastructure/compose.test.yml` | **Written, unexecuted.** No Docker in the authoring environment, so it has never been brought up |
 | Scenario registry (T09-16) | `scenarios/` | Empty — 0 of 600 cases written |
 | Independent oracle (T09-07/08) | `oracle/` | Empty — not started |
@@ -23,10 +23,22 @@ Design document: [`Project_09_Integration_Testing_and_Performance_System_Design.
 | Evidence store + gate evaluator (T09-32) | `reporting/` | Empty — not started |
 | Runbooks (T09-31) | `runbooks/` | Empty — not started |
 
-So: **1 of 32 tickets is implemented.** Everything else in this directory is a
-named, empty slot. That is deliberate — an empty directory is honest, and a
-stub test that passes without asserting anything is the single failure mode
-this project exists to prevent (INV09-33, §19.3).
+**1 of 32 tickets implemented.** Everything else here is a named, empty slot.
+That is deliberate: an empty directory is honest, and a stub test that passes
+without asserting anything is the one failure mode this project exists to
+prevent (INV09-33, §19.3).
+
+### What the one working ticket turned out to be worth
+
+T09-01 was meant to be bookkeeping. It found that four of the eight seams
+between P01–P08 were broken while all 3,500-odd component tests were passing,
+because every component had been tested against its own stand-in for its
+neighbour. That is the argument for this whole project in one sentence, and it
+came from the cheapest ticket in it.
+
+It also caught a false finding of its own: a reported SQLite-only P05 reader
+that turned out to be dialect-aware. A gate is only useful if its output can be
+wrong and get withdrawn, so that one was withdrawn from the manifest.
 
 ## Scorecard
 

@@ -23,6 +23,13 @@ testpaths = ["tests"]
 pythonpath = ["src"]
 addopts = "-q --strict-markers"
 markers = [
+    "slow: excluded from the per-commit sweep",
+    "performance: benchmark and load tests",
+    # Declared although nothing here is marked with them. The root Makefile
+    # filters every component with one expression, `-m "not slow and not
+    # performance"`, and --strict-markers validates the names used in -m as
+    # well as the ones applied to tests. Without these two lines pytest exits
+    # with a usage error and this package silently never runs.
     "unit: fast in-process checks",
     "property: Hypothesis property tests",
 ]

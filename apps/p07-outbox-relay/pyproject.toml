@@ -8,6 +8,8 @@ version = "1.0.0"
 description = "Project 07 - PostgreSQL Outbox & Kafka: transactional outbox, at-least-once relay, idempotent reference consumer"
 requires-python = ">=3.12"
 dependencies = [
+    # The event contract, shared with Project 03 (producer) and 08 (consumer).
+    "platform-events",
     "pydantic>=2.9",
     "pydantic-settings>=2.4",
     "prometheus-client>=0.21",

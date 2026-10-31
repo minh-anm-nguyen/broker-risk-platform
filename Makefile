@@ -27,8 +27,13 @@ endif
 PY := $(shell test -x "$(VENV_PY)" && echo "$(CURDIR)/$(VENV_PY)" || echo python)
 
 COMPOSE := docker compose -f infrastructure/compose.test.yml
+# Both shared packages, for every component. P06 imports risk_engine; P03, P07
+# and P08 import platform_events. Leaving one out does not fail at collection -
+# it fails inside the suite, which reads as the component being broken rather
+# than the path being short.
 RISK_ENGINE_SRC := $(CURDIR)/packages/risk-engine/src
-PYPATH := src$(PATHSEP)$(RISK_ENGINE_SRC)
+PLATFORM_EVENTS_SRC := $(CURDIR)/packages/platform-events/src
+PYPATH := src$(PATHSEP)$(RISK_ENGINE_SRC)$(PATHSEP)$(PLATFORM_EVENTS_SRC)
 
 # Every component with a tests/ directory, in dependency order.
 COMPONENTS := \
@@ -40,6 +45,7 @@ COMPONENTS := \
 	apps/p06-api \
 	apps/p07-outbox-relay \
 	apps/p08-analytics \
+	packages/platform-events \
 	packages/risk-engine
 
 # Excluded from the default sweep: these take minutes and need a declared
@@ -85,12 +91,12 @@ contracts-strict:
 test:
 	@failed=""; notrun=""; \
 	for c in $(COMPONENTS); do \
-		if [ ! -d "$$c/tests" ]; then notrun="$$notrun $$c(no-tests-dir)"; continue; fi; \
+		if [ ! -d "$$c/tests" ]; then notrun="$$notrun $${c}:no-tests-dir"; continue; fi; \
 		echo "--- $$c"; \
 		( cd "$$c" && PYTHONPATH="$(PYPATH)" "$(PY)" -m pytest \
 			-q --no-header -m "$(FAST_MARKERS)" ); \
 		rc=$$?; \
-		if [ $$rc -eq 5 ]; then notrun="$$notrun $$c(empty-suite)"; \
+		if [ $$rc -eq 5 ]; then notrun="$$notrun $${c}:empty-suite"; \
 		elif [ $$rc -ne 0 ]; then failed="$$failed $$c"; fi; \
 	done; \
 	echo; \

@@ -66,6 +66,18 @@ components:
     role: Full P05 - domain engine plus DB adapters, policies, gates, tooling
     entrypoints: [risk_tools.benchmark:main, risk_tools.report:main]
     deployable: false
+  platform_events:
+    path: packages/platform-events
+    package: platform_events
+    role: Shared event contract - envelope, identity, schema, routing, money,
+      canonical serialisation. No database, no broker.
+    deployable: false
+    note: >
+      Extracted from outbox.events so a producer does not have to import the
+      relay. P03 builds an event with this and persists it with its own
+      session, which is the only way the Deal and its outbox row can share a
+      transaction. P07 keeps thin re-export shims at the old paths.
+
   p05_risk_engine_lib:
     path: packages/risk-engine
     package: risk_engine
@@ -267,7 +279,24 @@ gaps:
     resolution_options: [adapter in packages/risk-engine delegating to risk.service,
                          promote risk.contract types into the shared package,
                          declare the reference library the only supported P05 surface]
-    p09_gate: must be closed or explicitly scoped before G1 is claimed
+    status: scoped
+    resolution: >
+      SCOPED 2026-10-31, option three. For P0 the reference library is the
+      supported P05 surface behind Project 06, because the full engine reads
+      Project 03's PostgreSQL tables and this API's read views are still the
+      in-memory reference implementation. Wiring the full engine is a P1 item
+      and needs the P03 database first.
+
+      The decision is now guarded rather than merely written down:
+      apps/p06-api/tests/unit/test_p05_boundary.py fails if any risk_api module
+      imports the full `risk` package - a half-finished migration nobody
+      declared - and also fails if nothing imports risk_engine any more, which
+      would mean the arithmetic had moved into the API.
+
+      Release labelling that follows from this: a report served by P06 must not
+      be described as computed by the full Project 05 engine. It is computed by
+      the reference library, which implements the P0 USD linear FX profile and
+      nothing beyond it.
 
   CG-02:
     title: Event type set is wider in code than in the P09 design manifest
@@ -278,23 +307,36 @@ gaps:
     consequence: A consumer written to the document would not handle two live event types.
     severity: medium
     owner: unassigned
-    resolution: this manifest records all five; the design document should be amended
+    status: resolved
+    resolution: >
+      RESOLVED 2026-10-31 by record. interfaces.p03_to_p07.event_types in this
+      manifest lists all five types the code emits, and this manifest - not the
+      design document - is what the contract gate checks and what a consumer
+      should be written against. The design document's three-type list is now
+      known to be incomplete; amending the document is a documentation task
+      with no code consequence.
 
   CG-03:
-    title: P02's compose wiring does not match P01's real configuration surface
+    title: P02's compose wiring did not match P01's real configuration surface
     detail: >
-      apps/p02-connector/docker-compose.yml sets SIMULATOR_DATA_TOKEN and
-      SIMULATOR_ADMIN_TOKEN on the simulator service and points
+      apps/p02-connector/docker-compose.yml set SIMULATOR_DATA_TOKEN and
+      SIMULATOR_ADMIN_TOKEN on the simulator service and pointed
       CONNECTOR_BASE_URL at port 8000. P01 reads the SIM_ prefix and listens on
       8001, so the simulator would start without the tokens it needs and the
-      connector would dial the wrong port.
-    consequence: That compose file cannot produce a working P01+P02 lab.
+      connector would dial a closed port.
+    consequence: That compose file could not produce a working P01+P02 lab.
     severity: medium
     owner: unassigned
+    status: resolved
     resolution: >
-      infrastructure/compose.test.yml is the integration topology. The
-      per-project compose files are single-component labs and must be corrected
-      or removed.
+      RESOLVED 2026-10-31. The file now uses SIM_DATA_TOKEN, SIM_ADMIN_TOKEN,
+      SIM_CURSOR_SIGNING_KEY (required because the container bind is not
+      loopback, so P01 fails closed without it), SIM_HOST, SIM_PORT and port
+      8001; CONNECTOR_BASE_URL and CONNECTOR_TOKEN_ENV follow. Its header now
+      says it is a two-service lab and points at
+      infrastructure/compose.test.yml for the full topology. Neither compose
+      file has been brought up - no Docker was available - so this is a
+      verified-by-reading wiring fix, not a verified boot.
 
   CG-04:
     title: tenant_id is required by the P09 identity vector but not implemented
@@ -307,6 +349,26 @@ gaps:
       scoped to P06 authorization and P08 tenant mapping until this closes.
     severity: high
     owner: unassigned
+    status: deferred
+    resolution: >
+      DEFERRED 2026-10-31 under P09 section 19.1, which permits deferral only
+      with an explicitly named unsupported feature, a risk owner and no P0
+      safety compromise.
+
+      Unsupported feature, stated plainly: multi-tenant isolation. This
+      platform serves one implicit tenant. P06 enforces per-principal account
+      scope and P08 maps a topic/source pair to a tenant label, but there is no
+      platform-wide tenant identity, so nothing may be described as
+      multi-tenant and INV09-14 may not be claimed beyond those two local
+      checks.
+
+      Why this is not a P0 safety compromise today: with one tenant there is no
+      second tenant's data to leak. It becomes a P0 blocker the moment a second
+      source or a second principal set is introduced, which is why the scope
+      label has to travel with any release.
+
+      Expiry condition rather than a date: the first change that introduces a
+      second tenant, a second broker source or an external identity provider.
 
   CG-07:
     title: P07's migrate() creates stand-in copies of P03-owned tables
@@ -363,10 +425,95 @@ gaps:
       changes."
     severity: critical
     owner: unassigned
+    status: implemented-unverified
     resolution: >
-      P03's deal-insert transaction calls OutboxWriter inside its own unit of
-      work. outbox/p03/sync_service.py is retired to a test double and labelled
-      as one.
+      IMPLEMENTED 2026-10-31, DATABASE VERIFICATION BLOCKED.
+
+      The event contract was extracted to packages/platform-events, so P03 can
+      build a DealRecorded without importing the relay. P03 now declares P07's
+      event_outbox and outbox_aggregate_heads in a separate MetaData
+      (infrastructure/outbox_models.py - separate so P03's migration can never
+      create tables P07 owns), builds the row with a pure emitter
+      (application/outbox_emission.py) and inserts it on the same AsyncSession
+      inside persist_deal_page. Aggregate versions are allocated per account
+      under the row lock using P07's reserve-then-bump protocol. Emission is
+      gated by sync.emit_outbox_events, default False, so P03 stays usable
+      standalone and the gap stays declared rather than silent.
+
+      Verified here: 25 unit tests over the pure emitter - payload projection,
+      money as strings, currency reported UNPROVEN rather than guessed, derived
+      and stable event identity, epoch separation, per-account aggregate,
+      event_time being execution time, routing and allowlist, and refusal
+      rather than rounding for out-of-scale money. Plus 7 tests proving the
+      contract package imports with no component dependency. P07's 379 tests
+      still pass through the re-export shims.
+
+      NOT verified: the insert itself. Six cases in
+      tests/integration_pg/test_outbox_atomicity.py cover one-event-per-deal,
+      replay emitting nothing, version contiguity, all-or-nothing rollback,
+      payload/row agreement and the default-off posture. They report
+      BLOCKED_ENVIRONMENT without SYNC_TEST_DATABASE_URL and no PostgreSQL was
+      available. Until they run, the P03 -> P07 -> Kafka -> P08 chain is
+      implemented but unproven, and that test file is also the first thing that
+      applies P07's outbox DDL over P03's migrated schema - the schema
+      compatibility check CG-07 left open.
+
+      Done since: outbox/p03/sync_service.py is now labelled TEST DOUBLE and
+      its docstring points at the real producer, instead of still claiming
+      "Project 03 is not implemented in this repository".
+
+  CG-10:
+    title: P03 stores money at a finer scale than the event contract can carry
+    detail: >
+      trading_sync.domain.money sets MONEY_SCALE = 12, so a deal's
+      realized_pnl_gross, commission or swap may legitimately carry up to
+      twelve decimal places. platform_events.money sets MONEY_SCALE = 2 and
+      normalize_money refuses anything finer rather than rounding it. A deal
+      with commission = -0.005 is valid in P03 and cannot be expressed as a
+      DealRecorded payload.
+    consequence: >
+      Correct refusal, wrong place. The event contract declining to round a
+      commission is right - silently rounding money is the failure the whole
+      platform is built to avoid - but it means one such deal fails the page
+      transaction and halts Deal synchronisation for that scan rather than
+      being handled. Found only by wiring the two together; no component test
+      could see it.
+    severity: critical
+    owner: unassigned
+    resolution_options:
+      - raise the event contract's MONEY_SCALE to match P03 and widen the
+        ClickHouse and API column types to match
+      - constrain P03's ingress so a source that reports finer-grained money is
+        rejected at the boundary, where the operator can see the source is
+        incompatible
+      - carry the exact value as a string and a declared scale in the payload,
+        so no component has to agree on one global scale
+    status: scoped
+    resolution: >
+      SCOPED 2026-10-31, option two, with the boundary moved as close to the
+      source as this repository allows.
+
+      The event contract's two decimal places are kept. Widening it would mean
+      widening the ClickHouse column types, the API response contract and
+      every golden vector with it, for a case the simulator does not currently
+      produce - a large change with no business need behind it. Rounding is not
+      on the table: a commission silently changed from -0.005 to -0.01 is a
+      wrong number nobody was told about.
+
+      So emission fails closed, and now does so with a typed, actionable error.
+      trading_sync.application.outbox_emission.assert_emittable runs before the
+      envelope is built and raises OutboxEmissionError naming the deal, the
+      field, both scales and the two real ways out. Previously the failure
+      arrived from inside the shared contract as "too many significant digits",
+      with no deal id - an operator could not tell a code defect from an
+      incompatible source.
+
+      Residual risk, stated: the check still fires at page-commit time, so one
+      incompatible deal halts that scan. Rejecting it during source validation
+      instead would localise the damage to one record, and that belongs with
+      P03's ingress pipeline. Until then an incompatible source stops Deal
+      synchronisation rather than corrupting it, which is the correct ordering
+      of bad outcomes.
 
   CG-06:
     title: The shared P05 library has an empty test directory

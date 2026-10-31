@@ -383,6 +383,19 @@ class StaleScanError(SyncError):
     reason_code = "STALE_SCAN"
 
 
+class OutboxEmissionError(SyncError):
+    """An outbox row could not be produced for a Deal that was about to commit.
+
+    Not retryable by replaying the page: the same input would fail the same
+    way. The transaction rolls back, so the Deal is not committed either -
+    which is the point. A Deal in the database with no event in the outbox
+    would be invisible to every downstream component and would look like
+    success (contract gap CG-08).
+    """
+
+    reason_code = "OUTBOX_EMISSION_FAILED"
+
+
 class TransientDatabaseError(SyncError):
     """Serialization failure (40001) or deadlock (40P01).
 

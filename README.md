@@ -19,6 +19,8 @@ broker-risk-platform/
 │   ├── p07-outbox-relay/     P07  same-transaction outbox, fenced relay, reference consumer
 │   └── p08-analytics/        P08  raw ingest, canonical build, immutable verified publication
 ├── packages/
+│   ├── platform-events/            shared event contract: envelope, identity,
+│   │                               schema, routing, money. No DB, no broker.
 │   └── risk-engine/          P05  pure Decimal domain library (what P06 actually imports)
 ├── contracts/                      frozen interface manifest + JSON Schemas (T09-01)
 ├── infrastructure/
@@ -86,28 +88,35 @@ Counted from the tree, not estimated:
 
 ## Verified test status
 
-Full sweep after the assembly, `make test` equivalent (markers
-`not slow and not performance`), on Python 3.14 / Windows:
+`make test` across every component (markers `not slow and not performance`),
+Python 3.14 on Windows:
 
 | Component | Result |
 |---|---|
 | p01-simulator | 508 passed, 25 deselected |
 | p02-connector | 510 passed, 19 deselected |
-| p03-sync | 229 passed, 117 skipped, 5 deselected |
+| p03-sync | 255 passed, 123 skipped, 5 deselected |
 | p04-reconciliation | 268 passed, 28 deselected |
 | p05-risk-engine | 360 passed, 1 skipped, 9 deselected |
-| p06-api | 697 passed, 2 skipped, 25 deselected |
+| p06-api | 699 passed, 3 skipped, 25 deselected |
 | p07-outbox-relay | 379 passed, 1 skipped, 16 deselected |
 | p08-analytics | 574 passed, 13 deselected |
-| packages/risk-engine | **NOT_RUN — 0 tests collected** (CG-06) |
-| **Total** | **3,525 passed, 0 failed, 121 skipped, 140 deselected** |
+| packages/platform-events | 7 passed |
+| packages/risk-engine | 87 passed |
+| **Total** | **3,647 passed, 0 failed, 128 skipped, 140 deselected** |
 
-Read the three right-hand numbers, not just the first. 117 of P03's cases skip
-because `SYNC_TEST_DATABASE_URL` is unset — by its own design those cases are
-`BLOCKED_ENVIRONMENT`, never `PASS`. The 140 deselected are the slow and
-performance suites, which need a declared resource envelope to mean anything.
-`packages/risk-engine` collected nothing, and `make test` reports that as
-`NOT_RUN` rather than folding it into a green line.
+Read the right-hand numbers, not just the first. 123 of P03's skips are
+database-backed cases, including the six that would prove the outbox
+atomicity invariant; without `SYNC_TEST_DATABASE_URL` they are
+`BLOCKED_ENVIRONMENT`, which by the project's own rule is not a pass. The 140
+deselected are the slow and performance suites, which need a declared resource
+envelope to mean anything.
+
+`make test` reports an empty suite as `NOT_RUN` on its own line rather than
+folding it into a green summary. That is not decoration: it is how
+`packages/risk-engine` was found to have no tests at all, and later how a
+phantom entry in the component list was found - both would otherwise have
+looked like success.
 
 ## Quick start
 
@@ -123,50 +132,88 @@ The bundled `.venv` is Python 3.14; components declare `>=3.12`.
 
 ## What is actually established
 
-**Working and verified in this repository**
+**Verified in this repository**
 
 - All eight components are implemented, with their own suites, Makefiles and
   `.env.example` files. No placeholder files remain.
-- The contract freeze gate runs: `make contracts` performs 68 checks over
+- The contract freeze gate runs: `make contracts` performs 71 checks over
   component paths, package names, entrypoints, Dockerfile claims, env prefixes,
-  schema references and identity ownership.
+  schema references and identity ownership, and reports every gap with its
+  decision status.
+- `packages/platform-events` holds the shared event contract and is proven to
+  import with no dependency on any component package - checked both through
+  `sys.modules` and by reading the source, so a lazily imported component is
+  caught too.
 - `infrastructure/compose.test.yml` parses, and every build context, Dockerfile
   and bind mount it names resolves on disk.
 
-**Written but never executed**
+**Implemented but never executed against the thing it must work against**
 
-- `compose.test.yml` has not been brought up. Docker is not available in the
-  environment this was assembled in, so the topology is validated structurally
-  and nothing more.
-- `.github/workflows/platform.yml` has never run: this tree is **not a git
-  repository yet**. `git init` is the first step before CI means anything.
+- **The P03 outbox write.** P03 builds a `DealRecorded` and inserts it on its
+  own session inside the deal-page transaction. The pure half is fully tested;
+  the insert needs PostgreSQL, so the six atomicity cases report
+  `BLOCKED_ENVIRONMENT`. That file is also the first thing that would apply
+  P07's outbox DDL over P03's migrated schema, so the schema-compatibility
+  question is open with it.
+- `compose.test.yml` has not been brought up - no Docker in this environment.
+- `.github/workflows/platform.yml` has never run; the repository has two local
+  commits and no remote.
 
 **Not built**
 
 - 31 of 32 P09 tickets. No independent oracle, no golden fixtures, no fault
   injectors, no scenario registry, no evidence store, no gate evaluator. See
-  [`test-platform/README.md`](test-platform/README.md) for the slot-by-slot
-  state.
-- Therefore: **0 of 600 what-if cases, 0 of 40 crash points, 0 of 20 E2E flows,
-  0 of 16 benchmarks executed. Release gates G0–G5 are NOT EVALUATED.**
+  [`test-platform/README.md`](test-platform/README.md).
+- Therefore **0 of 600 what-if cases, 0 of 40 crash points, 0 of 20 E2E flows,
+  0 of 16 benchmarks executed. Release gates G0-G5 are NOT EVALUATED.**
 
-No throughput, latency, HA, RPO or RTO figure has been measured. Every such
-number in the design documents is a target.
+No throughput, latency, HA, RPO or RTO figure has been measured.
 
-## Open contract gaps
+## The eight seams
 
-`make contracts` prints these on every run. They are integration defects found
-by reading the code, recorded rather than patched over — P09 §1.2 makes
-detecting drift P09's job and fixing production schemas explicitly not its job.
+The thing worth knowing about this codebase. Every component's own suite passed
+while four of the eight seams between them were broken, because each component
+was tested against its own idea of its neighbour: P07 against a 336-line
+stand-in P03 it wrote itself, P06 against a reference engine, P05's reader
+against SQLite shaped like P03. Each was internally consistent, and together
+they did not form a system.
 
-| ID | Severity | Gap |
+| # | Seam | State |
 |---|---|---|
-| CG-01 | high | Two P05 surfaces exist and are not API-compatible. P06 imports the 1.2k-line `risk_engine` library, not the 8.2k-line `risk` package. A P06 response does not exercise the full P05 policy, gate and adapter code. |
-| CG-04 | high | `tenant_id` is required by the P09 identity vector and by INV09-14, but there is no platform-wide tenant model. Cross-tenant isolation cannot be tested end to end. |
-| CG-06 | high | `packages/risk-engine/tests/` is empty. The money library every financial response flows through has no suite of its own. |
-| CG-02 | medium | P07 emits five event types; the P09 design manifest froze three. A consumer written to the document would miss `SourceEpochChanged` and `ReconciliationVerified`. |
-| CG-03 | medium | `apps/p02-connector/docker-compose.yml` uses `SIMULATOR_*` and port 8000; P01 reads `SIM_*` and listens on 8001. That file cannot produce a working lab. `compose.test.yml` has the correct wiring. |
-| CG-05 | low | `fee_coverage` is structurally `NOT_AVAILABLE` because P03 carries no `fee` field. Correct by design; recorded so nobody "fixes" it with a zero. |
+| 1 | P01 → P02 | real - `simulator_sync_http` driver over HTTP |
+| 2 | P02 → P03 | real - `source_adapter.py` over httpx |
+| 3 | P03 → P04 | real - P04 reads P03's tables and boots P01 in-process |
+| 4 | P03/P04 → P05 | real - `p03_reader.py` is dialect-aware for both SQLite and PostgreSQL |
+| 5 | P05 → P06 | **scoped** - reference library, not the full engine (CG-01) |
+| 6 | P03 → P07 | **implemented, unproven** - was absent entirely (CG-08) |
+| 7 | P07 schema ownership | fixed - P07 no longer creates P03's tables (CG-07) |
+| 8 | P07 → P08 | real - topics match |
+
+## Contract gaps
+
+`make contracts` prints these on every run with their decision status. They are
+integration defects found by reading and then wiring the code - P09 §1.2 makes
+detecting drift P09's job and patching production schemas explicitly not its
+job. Nothing is left `UNDECIDED`.
+
+**Closed**
+
+| ID | What it was | How it closed |
+|---|---|---|
+| CG-02 | P07 emits five event types; the design document froze three | `interfaces.p03_to_p07.event_types` in the manifest now lists all five, and the manifest is what the gate checks |
+| CG-03 | P02's compose used `SIMULATOR_*` and port 8000; P01 reads `SIM_*` on 8001 | Wiring corrected, including the cursor signing key P01 fails closed without |
+| CG-05 | `fee_coverage` is structurally `NOT_AVAILABLE` | Accepted by design, recorded so nobody "fixes" it with a zero |
+| CG-06 | The shared P05 money library had an empty test directory | 87 tests over the decimal primitives, every expectation taken from running the code |
+| CG-07 | P07's `migrate()` created stand-in copies of five P03-owned tables on the production path | `include_p03_standin` keyword, default False; `outbox migrate --with-p03-standin` reports which ownership was chosen |
+
+**Open, with a recorded decision**
+
+| ID | Sev | Status | Position |
+|---|---|---|---|
+| CG-08 | critical | implemented-unverified | P03 now builds and inserts the outbox row on its own session inside `persist_deal_page`. 26 unit tests cover the pure emitter; the six database cases report `BLOCKED_ENVIRONMENT` because no PostgreSQL was available. **The chain is implemented, not proven.** |
+| CG-10 | critical | scoped | P03 stores money at 12 decimal places; the event contract carries 2 and refuses the rest. Kept at 2; emission fails closed with a typed error naming the deal, the field and both scales. Residual risk: one incompatible deal halts its scan. |
+| CG-01 | high | scoped | P06 serves from the 1.2k-line reference library, not the 8.2k-line full P05. A P0 scope decision, now guarded by `tests/unit/test_p05_boundary.py`, which fails if the full engine is half-wired in **or** if the arithmetic moves into the API. |
+| CG-04 | high | deferred | No platform-wide tenant model. Unsupported feature named explicitly per §19.1; not a P0 compromise with one tenant, becomes a blocker on the second. |
 
 ## Rules that bind the whole tree
 
