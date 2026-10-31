@@ -1,0 +1,27 @@
+# IT-04: the sink commits, the acknowledgement is lost, the consumer restarts.
+scenario_id: WF2-K-02
+implemented_by: tests/integration/test_checkpoint_handoff.py::TestCrashBoundaries
+simulator:
+  seed: 42
+  initial_deals: 50
+connector:
+  worker_mode: thread
+  page_size: 5
+  page_deadline_ms: 3000
+sink:
+  unique_key: [source_id, deal_id]
+  durable_checkpoint: true
+injection:
+  layer: downstream_double
+  trigger: {on_commit: 2}
+  action: {mode: drop_ack_after_commit}
+fault_activation_expected: 1
+assertions:
+  - checkpoint_unchanged_after_the_failure
+  - rerun_from_the_old_watermark_converges
+  - sink_has_one_row_per_deal        # no double count
+  - final_id_set_equals_source_oracle
+  - source_seq_gaps_tolerated
+artifacts:
+  - what_if_results.json
+  - scorecard.md

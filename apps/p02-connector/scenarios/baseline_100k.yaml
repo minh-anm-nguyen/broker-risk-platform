@@ -1,0 +1,29 @@
+# B1/LARGE baseline: no faults. The reference the chaos runs are read against.
+scenario_id: WF2-BENCH-BASELINE
+implemented_by: tests/performance/test_baseline.py::TestLargeScan
+simulator:
+  seed: 42
+  run_id: run_0001
+  initial_accounts: 50
+  initial_deals: 100000
+connector:
+  worker_mode: thread
+  max_queue: 32
+  page_size: 500
+  page_deadline_ms: 5000
+  queue_wait_cap_ms: 2000
+injection:
+  layer: none
+  fault_profile: none
+fault_activation_expected: 0
+assertions:
+  - deal_ids_match_source_oracle
+  - no_duplicate_ids_in_completed_scan
+  - rss_does_not_grow_with_dataset
+  - checkpoint_candidate_present_only_when_complete
+artifacts:
+  - benchmark.json
+  - manifest.json
+notes: >-
+  Reported with fault_profile=none. A number measured under a fault and
+  published as a baseline is the failure WF2-P-11 describes.

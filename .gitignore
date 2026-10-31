@@ -1,0 +1,44 @@
+# Monorepo-level ignores. Each component keeps its own .gitignore for things
+# only it produces; this file covers what the whole tree generates.
+
+# Environments
+.venv/
+venv/
+.python-version
+
+# Python build and cache
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+.ruff_cache/
+.mypy_cache/
+
+# Test caches. .hypothesis holds the shrink database: useful locally, not a
+# shared artifact, and never evidence.
+.pytest_cache/
+.hypothesis/
+.coverage
+.coverage.*
+htmlcov/
+
+# Component run output. P09 evidence bundles are saved OUTSIDE the stack's
+# teardown scope (section 17) and must not live here, where `make clean` or a
+# compose `down -v` could remove the record of a failed run.
+artifacts/
+*.db
+*.db-wal
+*.db-shm
+*.writer.lock
+
+# Secrets. Only .env.example is committed.
+.env
+.env.*
+!.env.example
+
+# Editors and OS
+.idea/
+*.swp
+.DS_Store
+Thumbs.db

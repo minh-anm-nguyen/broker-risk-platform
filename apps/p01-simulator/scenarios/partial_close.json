@@ -1,0 +1,13 @@
+{
+  "scenario_name": "partial-close",
+  "seed": 11,
+  "generator_version": "1.0",
+  "start_virtual_time": "2026-10-30T00:00:00Z",
+  "account_count": 3,
+  "deal_count": 60,
+  "max_open_positions": 3,
+  "symbols": ["EURUSD", "AUDUSD"],
+  "initial_balance_usd": "10000.00",
+  "execution_mode": "bulk_generate",
+  "fault_profile": "none"
+}

@@ -1,0 +1,56 @@
+# Reusable fault scenario, in the interface shape of design section 9.4.
+#
+# The design offers this YAML as a proposal and notes that no runner exists.
+# In this repository the executable form of this scenario is
+# tests/chaos/test_kill_points.py::TestIngestKillPoints::test_kp05_* and
+# tests/integration/test_acceptance.py::TestIT0805*; this file is the
+# human-readable statement of the same conditions, kept beside them so the
+# design ID, the fault site and the oracles stay traceable.
+#
+# Nothing imports this file. It is documentation, not configuration.
+
+scenario_id: P08-G08-02
+priority: P0
+title: Duplicate delivery across the ClickHouse ACK / Kafka commit boundary
+
+preconditions:
+  tenant: lab-tenant
+  source_id: sim-broker-01
+  source_epoch: 00000000-0000-4000-8000-000000000001
+  reference_fixture: G08-02
+  policy_version: usd-fx-synthetic-v1
+
+faults:
+  - at: after_clickhouse_insert_ack_before_kafka_offset_commit
+    kill_point: KP08-05
+    action: kill_consumer
+  - at: restart_consumer
+    action: replay_same_event_id_new_kafka_delivery
+
+expected:
+  publication_state: READY
+  canonical_deal_effect_count: 3
+  money_delta_relative_to_baseline: "0.00"
+  raw_observation_count_at_least: 6
+  kafka_committed_offset_after_fault: 0
+  kafka_committed_offset_after_recovery: 3
+
+oracles:
+  - kafka_offset_log
+  - ch_raw_identity_hash_check
+  - pg_source_manifest_set_equality
+  - independent_python_decimal_totals
+  - publication_history_and_evidence
+
+# Section 11's PASS conditions, all five of which must hold.
+pass_requires:
+  - the fault fired at the intended site (FaultPlan.assert_fired)
+  - the expected state transition and response matched
+  - the independent oracle agrees on identity, money, tenant and cut
+  - resource budgets were met or a controlled failure was observed
+  - evidence artefacts were saved
+
+executed_by:
+  - tests/chaos/test_kill_points.py::TestIngestKillPoints::test_kp05_after_ack_before_offset_commit
+  - tests/integration/test_acceptance.py::TestIT0805KillAfterAckBeforeCommit
+  - scripts/collect_evidence.py duplicate

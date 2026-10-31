@@ -1,0 +1,146 @@
+# Project 08 - local infrastructure for the integration runs the offline
+# suite cannot perform. Design section 13.1 asks for a reproducible lab
+# reference, so images are pinned by tag and resources are capped.
+#
+# Nothing in `make smoke` or `make test` needs this file. It exists to close
+# release gates G1 and G2, which stay open until a run against these services
+# is recorded.
+
+name: p08-broker-analytics
+
+services:
+  clickhouse:
+    # Pin a concrete version: section 13.1 forbids inheriting whatever
+    # :latest happens to be, and the app refuses to boot without a matching
+    # P08_CH_SERVER_VERSION_PIN.
+    image: clickhouse/clickhouse-server:24.8.14.39-alpine
+    container_name: p08-clickhouse
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    environment:
+      CLICKHOUSE_DB: broker_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ./database/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
+    deploy:
+      resources:
+        limits: { cpus: "4.0", memory: 6G }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  postgres:
+    image: postgres:16.4-alpine
+    container_name: p08-postgres
+    environment:
+      POSTGRES_PASSWORD: p08-local-only
+      POSTGRES_DB: broker_platform
+    ports:
+      - "127.0.0.1:5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ./database/postgres/migrations:/migrations:ro
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d broker_platform"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  kafka:
+    # KRaft mode: no ZooKeeper, one broker. Single-node is explicitly not HA
+    # (design section 0, point 12); what-if domain AF needs a real cluster.
+    image: bitnami/kafka:3.8.0
+    container_name: p08-kafka
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Seven days, so a retention-gap drill has to be deliberate rather than
+      # happening by accident during a long test run.
+      KAFKA_CFG_LOG_RETENTION_HOURS: "168"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3G }
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  kafka-init:
+    image: bitnami/kafka:3.8.0
+    container_name: p08-kafka-init
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic broker.deals.v1 --partitions 6 --replication-factor 1
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic broker.snapshots.v1 --partitions 3 --replication-factor 1
+        kafka-topics.sh --bootstrap-server kafka:9092 --list
+    restart: "no"
+
+  # The read-only query service. The consumer and the build worker run from
+  # the same image with a different command.
+  analytics-query:
+    build: .
+    container_name: p08-analytics-query
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      P08_ENV: docker
+      P08_HOST: 0.0.0.0
+      P08_CH_URL: http://clickhouse:8123
+      P08_CH_DATABASE: broker_analytics
+      # Must match the pinned image tag above, or the app refuses to boot.
+      P08_CH_SERVER_VERSION_PIN: "24.8.14.39"
+      P08_CONTROL_DSN: postgresql://postgres:p08-local-only@postgres:5432/broker_platform
+      P08_KAFKA_BOOTSTRAP: kafka:9092
+      P08_TENANT_MAP: broker.deals.v1:sim-broker-01=lab-tenant
+      # Local-only values. A real deployment supplies these from a secret
+      # store; both tokens are required, must differ, and a non-loopback bind
+      # needs at least 32 characters.
+      P08_READER_TOKEN: local-reader-token-not-for-production-01
+      P08_OPERATOR_TOKEN: local-operator-token-not-for-production-1
+      P08_CURSOR_SIGNING_KEY: local-cursor-signing-key-not-for-production
+      P08_LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:8008:8008"
+    volumes:
+      - ./artifacts:/app/artifacts
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+volumes:
+  clickhouse-data:
+  postgres-data:
+  kafka-data:

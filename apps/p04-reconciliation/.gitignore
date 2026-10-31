@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+*.egg-info/
+
+# Runtime state and evidence. The reconciliation database holds manifests and
+# findings, not raw financial rows, but it is still operational data and is
+# never committed.
+data/
+*.db
+*.db-wal
+*.db-shm
+
+# Evidence artifacts from test campaigns and benchmarks (section 10.7). They
+# are reproducible outputs, and keeping them out of the repository stops a
+# stale measurement being mistaken for a current one.
+artifacts/
+
+.env
+.venv/

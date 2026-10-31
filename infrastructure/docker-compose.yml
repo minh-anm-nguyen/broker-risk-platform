@@ -1,0 +1,73 @@
+# SUPERSEDED - use infrastructure/compose.test.yml for integration work.
+#
+# This is a narrow Project 06 lab: postgres plus the Risk Reporting API against
+# its in-memory reference read views, with the Project 01 simulator behind the
+# "full" profile. It is kept because it is the smallest thing that boots P06
+# alone.
+#
+# Its original header claimed Projects 02, 03 and 04 were "designs, not
+# deployable services". That is no longer true: all eight components are
+# implemented under apps/, and P02, P03 and P08 have Dockerfiles. The full T1
+# topology lives in compose.test.yml (P09 ticket T09-03). Do not use this file
+# as evidence of a P01-P06 integration environment - it is not one, and the
+# API's read views here are still the in-memory reference implementation.
+name: broker-risk-platform-p06-lab
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: risk
+      POSTGRES_PASSWORD: risk-local-only
+      POSTGRES_DB: broker_risk
+    ports:
+      - "55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      # Applied once on first start, so the audit DDL is exercised for real.
+      - ../apps/p06-api/migrations/versions:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U risk -d broker_risk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  simulator:
+    build:
+      context: ../apps/p01-simulator
+    environment:
+      SIMULATOR_ENVIRONMENT: local
+    ports:
+      - "8050:8050"
+    profiles: ["full"]
+
+  risk-reporting-api:
+    build:
+      # The build needs the sibling risk-engine package, so the context is the
+      # repository root.
+      context: ..
+      dockerfile: apps/p06-api/Dockerfile
+    environment:
+      RISK_API_ENVIRONMENT: local
+      RISK_API_LOG_LEVEL: INFO
+      RISK_API_AUDIT_BACKEND: jsonl
+      RISK_API_AUDIT_PATH: /srv/var/audit/api_access_audit.jsonl
+      # An unaudited financial response is not permitted.
+      RISK_API_AUDIT_REQUIRED: "true"
+      # A partial report must be asked for explicitly.
+      RISK_API_STRICT_COMPOSITE_DEFAULT: "true"
+      # In a real deployment the metrics route binds to an internal listener.
+      # Here it stays reachable only with the ops role.
+      RISK_API_EXPOSE_INTERNAL_METRICS: "true"
+      RISK_API_FAULTS_ENABLED: "false"
+    ports:
+      - "8060:8060"
+    volumes:
+      - audit-data:/srv/var/audit
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+volumes:
+  postgres-data:
+  audit-data:

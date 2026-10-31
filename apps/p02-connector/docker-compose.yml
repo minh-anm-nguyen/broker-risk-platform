@@ -1,0 +1,45 @@
+# Local lab: the connector against a Project 01 simulator.
+#
+# The two planes are kept apart on purpose. The connector holds a data-plane
+# token and is attached only to the data-plane network, so it has no route to
+# the control plane at all; the test harness holds the admin token and drives
+# faults from outside. Sharing one credential or one network would undo the
+# separation ADR-212 exists for (section 9.3).
+services:
+  mt5-simulator:
+    # Project 01, built from its own directory. This file does not own it.
+    build: ../p01-simulator
+    environment:
+      SIMULATOR_DATA_TOKEN: ${SIMULATOR_DATA_TOKEN:?set a data-plane token}
+      SIMULATOR_ADMIN_TOKEN: ${SIMULATOR_ADMIN_TOKEN:?set an admin token}
+    ports:
+      - "8000:8000"
+    networks:
+      - data-plane
+      - control-plane
+
+  mt5-connector:
+    build: .
+    depends_on:
+      - mt5-simulator
+    environment:
+      CONNECTOR_SOURCE_ID: broker-sim-01
+      CONNECTOR_SOURCE_KIND: simulator
+      CONNECTOR_DRIVER: simulator_sync_http
+      CONNECTOR_BASE_URL: http://mt5-simulator:8000
+      CONNECTOR_TOKEN_ENV: SIMULATOR_DATA_TOKEN
+      CONNECTOR_WORKER_MODE: ${CONNECTOR_WORKER_MODE:-thread}
+      CONNECTOR_MAX_QUEUE_PENDING: "32"
+      CONNECTOR_PAGE_TOTAL_DEADLINE_MS: "3000"
+      CONNECTOR_QUEUE_WAIT_CAP_MS: "500"
+      # Data plane only. The admin token is not present in this container.
+      SIMULATOR_DATA_TOKEN: ${SIMULATOR_DATA_TOKEN:?set a data-plane token}
+    ports:
+      - "8080:8080"
+    networks:
+      # Not attached to control-plane, by design.
+      - data-plane
+
+networks:
+  data-plane:
+  control-plane:

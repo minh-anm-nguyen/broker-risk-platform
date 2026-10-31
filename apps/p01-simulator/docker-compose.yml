@@ -1,0 +1,90 @@
+# Local stack for Project 01.
+#
+# One service, one writer, one volume. There is deliberately no replica count
+# and no load balancer: the simulator supports a single writer process per
+# database, and scaling it horizontally would break sequence contiguity
+# silently (WF-120).
+#
+# The CPU and memory limits are set so a benchmark has a declared envelope.
+# Section 9.4 is explicit that a number measured without recorded limits is
+# not comparable to one measured with them.
+
+services:
+  simulator:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: mt5-broker-simulator:1.0.0
+    container_name: mt5-broker-simulator
+    restart: unless-stopped
+
+    environment:
+      SIM_DB_PATH: /data/simulator.db
+      SIM_HOST: 0.0.0.0
+      SIM_PORT: "8001"
+      SIM_ENV: docker
+      SIM_LOG_FORMAT: json
+      SIM_LOG_LEVEL: INFO
+      SIM_METRICS_ENABLED: "true"
+      # Replace these. Startup fails closed without them because the bind is
+      # not loopback, and the two tokens must differ.
+      SIM_DATA_TOKEN: ${SIM_DATA_TOKEN:?set SIM_DATA_TOKEN before starting}
+      SIM_ADMIN_TOKEN: ${SIM_ADMIN_TOKEN:?set SIM_ADMIN_TOKEN before starting}
+      SIM_CURSOR_SIGNING_KEY: ${SIM_CURSOR_SIGNING_KEY:?set SIM_CURSOR_SIGNING_KEY before starting}
+      # Bounded resources (section 9.3).
+      SIM_MAX_PENDING_EVENTS: "10000"
+      SIM_MAX_DATA_REQUESTS_IN_FLIGHT: "128"
+      SIM_MAX_ACTIVE_SNAPSHOTS: "100"
+      SIM_SNAPSHOT_TTL_SEC: "900"
+      SIM_WRITER_BATCH_SIZE: "500"
+      SIM_SQLITE_SYNCHRONOUS: FULL
+
+    ports:
+      # Published on loopback only. The control plane can reset a run and arm
+      # faults, so exposing it on a shared interface is not a default anyone
+      # should inherit.
+      - "127.0.0.1:8001:8001"
+
+    volumes:
+      # WF-121: a restart must find its dataset intact.
+      - simulator-data:/data
+
+    deploy:
+      resources:
+        limits:
+          # The reference envelope from section 9.1, so a benchmark result has
+          # a stated budget rather than "whatever the host had".
+          cpus: "4.0"
+          memory: 8G
+        reservations:
+          cpus: "1.0"
+          memory: 1G
+
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - |
+          import sys, urllib.request
+          sys.exit(0 if urllib.request.urlopen("http://127.0.0.1:8001/health/live", timeout=2).status == 200 else 1)
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 10s
+
+    # SIGTERM must quiesce generation and drain the writer queue rather than
+    # drop queued writes (WF-124). The grace period has to exceed the drain
+    # deadline or the kernel ends the process mid-drain.
+    stop_signal: SIGTERM
+    stop_grace_period: 30s
+
+    security_opt:
+      - no-new-privileges:true
+    read_only: true
+    tmpfs:
+      - /tmp
+
+volumes:
+  simulator-data:
+    driver: local

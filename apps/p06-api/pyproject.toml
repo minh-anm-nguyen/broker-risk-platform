@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "risk-reporting-api"
+version = "1.0.0"
+description = "Project 06 - Risk Reporting REST API: read-only broker risk reporting over the Project 05 engine"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "prometheus-client>=0.21",
+    "risk-engine>=1.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "hypothesis>=6.112",
+    "psutil>=6.0",
+    "pyyaml>=6.0",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src", "../../packages/risk-engine/src"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: fast in-process unit tests",
+    "contract: HTTP and schema contract tests",
+    "integration: multi-component integration tests",
+    "adversarial: fuzz, tamper and abuse tests",
+    "chaos: crash, outage and race tests (slow)",
+    "performance: load, soak and benchmark tests (slow)",
+    "property: property-based and metamorphic tests",
+    "slow: excluded from the per-commit smoke suite",
+]
+filterwarnings = ["error::DeprecationWarning:risk_api.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM"]
+ignore = ["B008"]

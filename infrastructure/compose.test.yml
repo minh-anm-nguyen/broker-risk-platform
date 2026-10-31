@@ -1,0 +1,305 @@
+# T1 integration topology for the broker risk platform (P09 ticket T09-03).
+#
+# Tier T1 in P09 section 4.1. What a run against this file CAN establish:
+# local service integration and deterministic crash behaviour. What it CANNOT
+# establish, and must never be quoted as evidence for: Kafka ISR quorum, real
+# high availability, PostgreSQL failover, or any production RTO/RPO number.
+# One broker is not a cluster. That is tier T3.
+#
+# Tags are pinned to concrete versions, never :latest (P09 section 4.2).
+# Pinning by digest is stricter still and is required before a T2 benchmark
+# result is comparable; see the `# digest:` notes below.
+#
+# Services here are exactly the components that have a Dockerfile. P04, P05 and
+# P07 are CLI components in this repository and are driven by the test runner,
+# not by compose - see the note near the end of the file. Listing them as
+# services would imply a deployable boundary that does not exist yet.
+#
+# Everything binds to loopback. The control planes here can reset a run, arm
+# faults and move a publication pointer; that is not a default anyone should
+# inherit on a shared interface.
+
+name: broker-risk-platform-test
+
+x-test-only: &test-only
+  labels:
+    platform.tier: T1
+    platform.purpose: integration-test
+
+services:
+
+  # ---------------------------------------------------------------- infra ---
+
+  postgres:
+    <<: *test-only
+    image: postgres:16.4-alpine
+    # digest: pin with @sha256:... before quoting any T2 benchmark
+    environment:
+      POSTGRES_USER: platform
+      POSTGRES_PASSWORD: local-only-not-a-secret
+      POSTGRES_DB: broker_platform
+    command:
+      # fsync stays on. A durability test against a database that does not
+      # fsync proves nothing about durability.
+      - postgres
+      - -c
+      - fsync=on
+      - -c
+      - synchronous_commit=on
+    ports:
+      - "127.0.0.1:55432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+      - ../apps/p06-api/migrations/versions:/migrations/p06:ro
+      - ../apps/p08-analytics/database/postgres/migrations:/migrations/p08:ro
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 2G }
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U platform -d broker_platform"]
+      interval: 5s
+      timeout: 3s
+      retries: 12
+
+  kafka:
+    <<: *test-only
+    # KRaft, single broker. Explicitly NOT high availability.
+    image: bitnami/kafka:3.8.0
+    environment:
+      KAFKA_CFG_NODE_ID: "1"
+      KAFKA_CFG_PROCESS_ROLES: broker,controller
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: "1"
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: "1"
+      # Topics are created explicitly by kafka-init. Auto-creation would let a
+      # typo in a topic name look like a working producer.
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
+      # Seven days, so a retention-gap drill has to be deliberate rather than
+      # something that happens by accident during a long soak.
+      KAFKA_CFG_LOG_RETENTION_HOURS: "168"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "127.0.0.1:9092:9092"
+    volumes:
+      - kafka-data:/bitnami/kafka
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 3G }
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+
+  kafka-init:
+    <<: *test-only
+    image: bitnami/kafka:3.8.0
+    depends_on:
+      kafka: { condition: service_healthy }
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic broker.deals.v1 --partitions 6 --replication-factor 1
+        kafka-topics.sh --bootstrap-server kafka:9092 --create --if-not-exists \
+          --topic broker.snapshots.v1 --partitions 3 --replication-factor 1
+        kafka-topics.sh --bootstrap-server kafka:9092 --list
+    restart: "no"
+
+  clickhouse:
+    <<: *test-only
+    image: clickhouse/clickhouse-server:24.8.14.39-alpine
+    ulimits:
+      nofile: { soft: 262144, hard: 262144 }
+    environment:
+      CLICKHOUSE_DB: broker_analytics
+      CLICKHOUSE_USER: default
+      CLICKHOUSE_PASSWORD: ""
+      CLICKHOUSE_DEFAULT_ACCESS_MANAGEMENT: "1"
+    ports:
+      - "127.0.0.1:8123:8123"
+      - "127.0.0.1:9000:9000"
+    volumes:
+      - clickhouse-data:/var/lib/clickhouse
+      - ../apps/p08-analytics/database/clickhouse/migrations:/docker-entrypoint-initdb.d:ro
+    deploy:
+      resources:
+        limits: { cpus: "4.0", memory: 6G }
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:8123/ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+
+  # ------------------------------------------------------------ P01 source ---
+
+  p01-simulator:
+    <<: *test-only
+    build:
+      context: ../apps/p01-simulator
+    environment:
+      SIM_ENV: docker
+      SIM_HOST: 0.0.0.0
+      SIM_PORT: "8001"
+      SIM_DB_PATH: /data/simulator.db
+      SIM_LOG_FORMAT: json
+      SIM_LOG_LEVEL: INFO
+      SIM_METRICS_ENABLED: "true"
+      SIM_SQLITE_SYNCHRONOUS: FULL
+      # Local-only values. The bind is not loopback inside the container, so
+      # startup fails closed without all three, and the two tokens must differ.
+      SIM_DATA_TOKEN: ${SIM_DATA_TOKEN:-t1-data-token-local-only-0000000001}
+      SIM_ADMIN_TOKEN: ${SIM_ADMIN_TOKEN:-t1-admin-token-local-only-0000000002}
+      SIM_CURSOR_SIGNING_KEY: ${SIM_CURSOR_SIGNING_KEY:-t1-cursor-signing-key-local-only-003}
+    ports:
+      - "127.0.0.1:8001:8001"
+    volumes:
+      - simulator-data:/data
+    deploy:
+      resources:
+        limits: { cpus: "4.0", memory: 8G }
+    stop_signal: SIGTERM
+    # Must exceed the writer drain deadline, or the kernel ends the process
+    # mid-drain and queued writes are lost for the wrong reason.
+    stop_grace_period: 30s
+    security_opt:
+      - no-new-privileges:true
+
+  # --------------------------------------------------------- P02 connector ---
+
+  p02-connector:
+    <<: *test-only
+    build:
+      context: ../apps/p02-connector
+    depends_on:
+      p01-simulator: { condition: service_started }
+    environment:
+      CONNECTOR_SOURCE_ID: sim_local
+      CONNECTOR_SOURCE_KIND: simulator
+      CONNECTOR_DRIVER: simulator_sync_http
+      # Port 8001 and the SIM_ prefix, matching P01's real configuration.
+      # Contract gap CG-03 records that the per-project compose file disagrees.
+      CONNECTOR_BASE_URL: http://p01-simulator:8001
+      CONNECTOR_TOKEN_ENV: SIM_DATA_TOKEN
+      SIM_DATA_TOKEN: ${SIM_DATA_TOKEN:-t1-data-token-local-only-0000000001}
+      CONNECTOR_WORKER_MODE: ${CONNECTOR_WORKER_MODE:-thread}
+      CONNECTOR_MAX_QUEUE_PENDING: "32"
+      CONNECTOR_PAGE_TOTAL_DEADLINE_MS: "3000"
+      CONNECTOR_QUEUE_WAIT_CAP_MS: "500"
+      CONNECTOR_ALLOW_PLAINTEXT_LOOPBACK: "true"
+      CONNECTOR_OUTBOUND_ALLOWLIST: p01-simulator
+      # Faults belong to P01's control plane and to the P09 injectors. The
+      # connector does not get to fake its own upstream.
+      CONNECTOR_ENABLE_FAULT_INJECTION_IN_CONNECTOR: "false"
+    ports:
+      - "127.0.0.1:8080:8080"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+  # --------------------------------------------------------------- P03 sync ---
+
+  p03-sync:
+    <<: *test-only
+    build:
+      context: ../apps/p03-sync
+    depends_on:
+      postgres: { condition: service_healthy }
+      p02-connector: { condition: service_started }
+    environment:
+      SYNC_DATABASE_URL: postgresql+asyncpg://platform:local-only-not-a-secret@postgres:5432/broker_platform
+      SYNC_SOURCE__SOURCE_ID: sim_local
+      SYNC_SOURCE__KIND: simulator
+      SYNC_SOURCE__CONNECTOR_ENDPOINT: http://p02-connector:8080
+      # Kill points K00..K16 are armed per scenario by the runner, never left on.
+      SYNC_ENABLE_KILLPOINTS: "false"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+  # ---------------------------------------------------------------- P06 API ---
+
+  p06-api:
+    <<: *test-only
+    build:
+      # The build needs the sibling risk-engine package, so the context is the
+      # repository root.
+      context: ..
+      dockerfile: apps/p06-api/Dockerfile
+    depends_on:
+      postgres: { condition: service_healthy }
+    environment:
+      RISK_API_ENVIRONMENT: local
+      RISK_API_LOG_LEVEL: INFO
+      RISK_API_AUDIT_BACKEND: jsonl
+      RISK_API_AUDIT_PATH: /srv/var/audit/api_access_audit.jsonl
+      # An unaudited financial response is not permitted. Fail closed.
+      RISK_API_AUDIT_REQUIRED: "true"
+      # A partial report must be asked for explicitly.
+      RISK_API_STRICT_COMPOSITE_DEFAULT: "true"
+      RISK_API_EXPOSE_INTERNAL_METRICS: "true"
+      RISK_API_FAULTS_ENABLED: "false"
+    ports:
+      - "127.0.0.1:8060:8060"
+    volumes:
+      - audit-data:/srv/var/audit
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+  # ---------------------------------------------------------- P08 analytics ---
+
+  p08-analytics:
+    <<: *test-only
+    build:
+      context: ../apps/p08-analytics
+    depends_on:
+      clickhouse: { condition: service_healthy }
+      postgres: { condition: service_healthy }
+      kafka: { condition: service_healthy }
+    environment:
+      P08_ENV: docker
+      P08_HOST: 0.0.0.0
+      P08_CH_URL: http://clickhouse:8123
+      P08_CH_DATABASE: broker_analytics
+      # Must match the pinned ClickHouse tag above or the app refuses to boot.
+      P08_CH_SERVER_VERSION_PIN: "24.8.14.39"
+      P08_CONTROL_DSN: postgresql://platform:local-only-not-a-secret@postgres:5432/broker_platform
+      P08_KAFKA_BOOTSTRAP: kafka:9092
+      P08_TENANT_MAP: broker.deals.v1:sim_local=t1-tenant
+      P08_READER_TOKEN: t1-reader-token-local-only-00000000001
+      P08_OPERATOR_TOKEN: t1-operator-token-local-only-0000000002
+      P08_CURSOR_SIGNING_KEY: t1-cursor-signing-key-local-only-00003
+      P08_LOG_LEVEL: INFO
+    ports:
+      - "127.0.0.1:8008:8008"
+    deploy:
+      resources:
+        limits: { cpus: "2.0", memory: 1G }
+
+# ---------------------------------------------------------------------------
+# Components deliberately absent as services
+# ---------------------------------------------------------------------------
+# P04 reconciliation : CLI `reconctl` (package `reconciliation`). No Dockerfile.
+# P05 risk engine    : library + `risk-benchmark` / `risk-report`. No Dockerfile.
+# P07 outbox relay   : CLI `outbox` (package `outbox`). No Dockerfile.
+#
+# The P09 runner invokes these in-process or as subprocesses against the
+# postgres and kafka services above. Adding an empty service entry for them
+# would be worse than their absence: `docker compose ps` would imply a running
+# relay, and a test could then "pass" with no relay at all. Giving them each a
+# Dockerfile is tracked follow-up work; until then the Kafka leg of any
+# end-to-end flow is driven by the runner, and that must be stated in the
+# evidence bundle rather than inferred from this file.
+
+volumes:
+  postgres-data:
+  kafka-data:
+  clickhouse-data:
+  simulator-data:
+  audit-data:

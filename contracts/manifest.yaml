@@ -1,0 +1,338 @@
+# Contract freeze for the broker risk platform (P09 ticket T09-01).
+#
+# This file is the single place where the interfaces between Projects 01-08 are
+# written down. It exists because P09 section 1.2 requires a frozen contract
+# before integration testing, and because P09 is responsible for *detecting*
+# drift, not for silently repairing a producer or a consumer to make a test
+# pass.
+#
+# How to read it:
+#   * `verified: true`  - the field or key was read out of the implementation
+#     listed under the component's `path` on the date in `reviewed`. It is a
+#     fact about this repository, not an aspiration.
+#   * `verified: false` - the design documents require it and no implementation
+#     provides it yet. Anything depending on it must answer BLOCKED or
+#     UNSUPPORTED rather than inventing a default (P05 decision 6, P06
+#     non-negotiable 4, P08 decision 9).
+#   * `gaps:` - known, deliberate disagreements between two components. A gap is
+#     an open integration defect with an owner. It is never a reason to loosen
+#     an invariant.
+#
+# Changing a `required` field, or a key tuple, is a new `contract_version` with
+# a dual-read migration. Adding an optional field is allowed only once the
+# consumer tests for it.
+
+contract_version: 1
+reviewed: 2026-10-31
+repository_layout: monorepo   # see P09 section 17
+
+# ---------------------------------------------------------------------------
+# Component registry. `path` is where the code lives after the P09 section 17
+# assembly; `package` is the importable name, which is what a test actually
+# depends on.
+# ---------------------------------------------------------------------------
+components:
+  p01_simulator:
+    path: apps/p01-simulator
+    package: simulator
+    role: Deterministic synthetic broker source and fault injector
+    env_prefix: SIM_
+    http_port: 8001
+    entrypoint: simulator.cli:main
+    deployable: true           # has a Dockerfile
+  p02_connector:
+    path: apps/p02-connector
+    package: mt5_connector
+    role: Typed MT5 adapter with bounded blocking-call isolation
+    env_prefix: CONNECTOR_
+    http_port: 8080
+    entrypoint: mt5_connector.cli:main
+    deployable: true
+  p03_sync:
+    path: apps/p03-sync
+    package: trading_sync
+    role: Authoritative PostgreSQL Deal store, watermark, staged snapshots
+    entrypoint: trading_sync.cli:main
+    deployable: true
+  p04_reconciliation:
+    path: apps/p04-reconciliation
+    packages: [reconciliation, recon_harness]
+    role: Read-only evidence collection, findings, fenced repair proposals
+    entrypoint: reconciliation.cli:main
+    deployable: false          # CLI only - no Dockerfile in this repository
+  p05_risk_engine_full:
+    path: apps/p05-risk-engine
+    packages: [risk, risk_tools]
+    role: Full P05 - domain engine plus DB adapters, policies, gates, tooling
+    entrypoints: [risk_tools.benchmark:main, risk_tools.report:main]
+    deployable: false
+  p05_risk_engine_lib:
+    path: packages/risk-engine
+    package: risk_engine
+    role: Pure Decimal domain library with no framework imports; P06 consumes this
+    deployable: false
+  p06_api:
+    path: apps/p06-api
+    package: risk_api
+    role: Thin authorized HTTP read layer over P05
+    env_prefix: RISK_API_
+    http_port: 8060
+    deployable: true
+  p07_outbox_relay:
+    path: apps/p07-outbox-relay
+    package: outbox
+    role: Same-transaction outbox, fenced relay, reference idempotent consumer
+    entrypoint: outbox.cli:main
+    deployable: false
+  p08_analytics:
+    path: apps/p08-analytics
+    package: analytics
+    role: Raw append-only ingest, canonical build, immutable verified publication
+    env_prefix: P08_
+    http_port: 8008
+    entrypoint: analytics.cli:main
+    deployable: true
+  p09_test_platform:
+    path: test-platform
+    role: Scenario orchestration, independent oracle, fault injection, release gates
+    deployable: false
+    note: >
+      A tooling tree, not an installable package: P09 section 17 puts runner/,
+      oracle/, fixtures/ and fault-injectors/ directly under test-platform/.
+      Tests reach them via pythonpath, declared in test-platform/pyproject.toml.
+      Separation of duty applies - the oracle must not import P05 finance code
+      and must not trust P08's build status.
+
+# ---------------------------------------------------------------------------
+# Identity vocabulary. P09 section 1.1 requires every end-to-end run to record
+# these. The `owner` field is what stops a test from treating two different
+# things as the same number.
+# ---------------------------------------------------------------------------
+identity:
+  tenant_id:            {owner: deployment, verified: false, note: "Single implicit tenant today; see gaps.CG-04"}
+  source_id:            {owner: p03_sync, verified: true, note: "Logical source config, stable across reconnects"}
+  epoch_id:             {owner: p03_sync, verified: true, note: "Source incarnation; NOT the P02 worker epoch"}
+  worker_epoch:         {owner: p02_connector, verified: true, note: "Connector worker lifetime only"}
+  run_id:               {owner: p01_simulator, verified: true, note: "Simulator semantics; absent from a real MT5 SDK"}
+  generation:           {owner: p01_simulator, verified: true}
+  snapshot_seq:         {owner: p01_simulator, verified: true, note: "Event-log upper bound, not a Deal count"}
+  source_seq:           {owner: p01_simulator, verified: true, note: "Source event order only. Not a Kafka offset, not contiguous"}
+  deal_watermark_seq:   {owner: p03_sync, verified: true, note: "Advances only after a terminal validated scan commits"}
+  accounts_scan_id:     {owner: p03_sync, verified: true}
+  positions_scan_id:    {owner: p03_sync, verified: true}
+  reconciliation_revision: {owner: p04_reconciliation, verified: true}
+  aggregate_version:    {owner: p07_outbox_relay, verified: true, note: "Per-aggregate ordering guard. Not a Deal revision"}
+  analytics_build_id:   {owner: p08_analytics, verified: true, note: "Immutable"}
+  publication_id:       {owner: p08_analytics, verified: true, note: "Rollback-able pointer, audited"}
+  quote_snapshot_id:    {owner: p05_risk_engine_lib, verified: true}
+  risk_policy_version:  {owner: p05_risk_engine_lib, verified: true}
+  symbol_catalog_version: {owner: p05_risk_engine_lib, verified: true}
+
+# ---------------------------------------------------------------------------
+# Interface contracts, keyed by the pair of components that must agree.
+# ---------------------------------------------------------------------------
+interfaces:
+
+  p01_to_p02:
+    transport: HTTP/JSON over the simulator data plane
+    auth: Bearer token, two planes (data, admin) that must differ
+    source_fields: [run_id, generation, scenario_name, seed, spec_hash, status,
+                    snapshot_seq, virtual_time, start_virtual_time, account_count,
+                    deal_count, open_position_count, capabilities]
+    schema: source-v1.schema.json
+    verified: true
+    note: >
+      The simulator REST surface is a simulated test contract, not the MT5
+      Manager wire protocol. P02's driver boundary is what absorbs the
+      difference; no test may treat P01 as evidence of real SDK behaviour.
+
+  p02_to_p03:
+    transport: in-process typed batches from the connector client
+    guarantees_provided: [bounded deadline, classified errors, late-response fencing,
+                          worker epoch, page provenance]
+    guarantees_NOT_provided: [checkpoint advancement, durability]
+    verified: true
+    note: >
+      The connector returns candidate metadata only. Checkpointing belongs to
+      P03 and happens after persist and ack.
+
+  p03_storage:
+    database: postgresql
+    deal_key: [tenant_id, source_id, epoch_id, deal_id]
+    checkpoint_scope: [epoch_id, entity, filter_hash]
+    tables_owned: [deals, accounts_current, positions_current, sync_runs, sync_checkpoints]
+    duplicate_policy: >
+      Identical payload under the same key is a no-op. A different payload under
+      the same key is a conflict and is quarantined. Last-write-wins is never
+      applied to money.
+    verified: true
+
+  p03_to_p04:
+    access: read-only SELECT plus the P04-owned recon_* tables
+    forbidden: [UPDATE on deals, UPDATE on balance, hard DELETE of a Deal,
+                inferring position CLOSED from absence in a listing]
+    verified: true
+
+  p04_to_p05:
+    provides: [reconciliation_revision, evidence status, blocking findings]
+    consumer_rule: >
+      A blocking P04 finding, or an epoch change, must invalidate any cached
+      risk result. P05 answers BLOCKED rather than computing an exact total.
+    verified: true
+
+  p05_to_p06:
+    kind: in-process Python library call
+    package: risk_engine
+    api: [RiskEngine, RiskRequest, RiskResult, format_money, format_units,
+          is_canonical_decimal_string, DECIMAL_STRING_RE]
+    money_representation: canonical decimal strings, never float
+    verified: true
+    note: See gaps.CG-01 - P06 is wired to the pure library, not to apps/p05-risk-engine.
+
+  p06_http:
+    schema: risk-response-v1.schema.json
+    statuses: [READY, DEGRADED, BLOCKED, UNSUPPORTED, INCONCLUSIVE]
+    consistency_values: [COMPATIBLE, INDEPENDENT, UNPROVEN]
+    fee_coverage_values: [COVERED, NOT_AVAILABLE]
+    mandatory_blocks: [scope, cuts, versions, coverage]
+    mandatory_digests: [input_digest, output_digest]
+    audit: >
+      A financially sensitive READY response is not sent if the required audit
+      record cannot be persisted. Fail closed.
+    verified: true
+
+  p03_to_p07:
+    rule: >
+      The business mutation and its outbox row COMMIT in one PostgreSQL
+      transaction. There is no post-commit best-effort produce.
+    schema_version: 1
+    event_types: [DealRecorded, AccountSnapshotPublished, PositionSnapshotPublished,
+                  SourceEpochChanged, ReconciliationVerified]
+    envelope_fields: [event_id, dedupe_key, event_type, schema_version, source_id,
+                      epoch_id, aggregate_type, aggregate_id, aggregate_version,
+                      event_time, created_at, payload_sha256, payload, provenance]
+    verified: true
+    note: See gaps.CG-02 - the P09 design document froze 3 event types; the code has 5.
+
+  p07_to_p08:
+    transport: Kafka
+    delivery: at-least-once
+    topics:
+      - {name: broker.deals.v1, partitions: 6, carries: DealRecorded}
+      - {name: broker.snapshots.v1, partitions: 3, carries: [AccountSnapshotPublished, PositionSnapshotPublished]}
+    schema: deal-recorded-v1.schema.json
+    consumer_duties: [dedupe by event_id, per-aggregate version guard,
+                      raw append-only landing, no SUM over raw]
+    forbidden_claims: ["exactly-once end-to-end",
+                       "PUBLISHED implies CONSUMED",
+                       "offset or lag proves source completeness"]
+    verified: true
+
+  p08_publication:
+    states: [BUILDING, VERIFIED, PUBLISHED, BLOCKED]
+    money_on_unknown_policy: BLOCKED
+    pointer_swap: single PostgreSQL transaction after an independent oracle passes
+    verified: true
+
+# ---------------------------------------------------------------------------
+# Compatibility policy (P09 section 1.2).
+# ---------------------------------------------------------------------------
+compatibility:
+  add_optional_producer_field: allowed only after the consumer has a test for it
+  rename_or_remove_required_field: new contract_version plus dual-read migration
+  unknown_financial_semantics: quarantine, or answer UNSUPPORTED explicitly
+  money_on_missing_basis: BLOCKED - never substitute a default currency, rate or zero
+
+# ---------------------------------------------------------------------------
+# Open contract gaps. Each one is a real disagreement found by reading the code
+# on the `reviewed` date. P09 reports these; it does not patch a production
+# schema to hide them.
+# ---------------------------------------------------------------------------
+gaps:
+  CG-01:
+    title: Two P05 surfaces exist and they are not API-compatible
+    detail: >
+      packages/risk-engine exposes a flat module `risk_engine` with RiskEngine,
+      RiskRequest and RiskResult at top level (about 1.2k lines). The full P05 at
+      apps/p05-risk-engine exposes package `risk`, where RiskRequest and
+      RiskResult live in risk.contract and the service entry is risk.service
+      (about 8.2k lines, with DB adapters and policies). P06 imports the former.
+    consequence: >
+      A P06 response is currently computed by the reference library, so it does
+      not exercise the full P05 policy, gate and adapter code. Any claim that
+      "P06 serves P05 results" is scoped to the reference library until this is
+      resolved.
+    severity: high
+    owner: unassigned
+    resolution_options: [adapter in packages/risk-engine delegating to risk.service,
+                         promote risk.contract types into the shared package,
+                         declare the reference library the only supported P05 surface]
+    p09_gate: must be closed or explicitly scoped before G1 is claimed
+
+  CG-02:
+    title: Event type set is wider in code than in the P09 design manifest
+    detail: >
+      P09 section 1.2 freezes event_types as the three Deal/snapshot events.
+      apps/p07-outbox-relay also emits SourceEpochChanged and
+      ReconciliationVerified.
+    consequence: A consumer written to the document would not handle two live event types.
+    severity: medium
+    owner: unassigned
+    resolution: this manifest records all five; the design document should be amended
+
+  CG-03:
+    title: P02's compose wiring does not match P01's real configuration surface
+    detail: >
+      apps/p02-connector/docker-compose.yml sets SIMULATOR_DATA_TOKEN and
+      SIMULATOR_ADMIN_TOKEN on the simulator service and points
+      CONNECTOR_BASE_URL at port 8000. P01 reads the SIM_ prefix and listens on
+      8001, so the simulator would start without the tokens it needs and the
+      connector would dial the wrong port.
+    consequence: That compose file cannot produce a working P01+P02 lab.
+    severity: medium
+    owner: unassigned
+    resolution: >
+      infrastructure/compose.test.yml is the integration topology. The
+      per-project compose files are single-component labs and must be corrected
+      or removed.
+
+  CG-04:
+    title: tenant_id is required by the P09 identity vector but not implemented
+    detail: >
+      P09 section 1.1 and INV09-14 require a tenant boundary. P03's Deal key in
+      this manifest lists tenant_id, and P08 accepts a P08_TENANT_MAP, but there
+      is no platform-wide tenant model.
+    consequence: >
+      Cross-tenant isolation cannot be tested end to end yet. INV09-14 is
+      scoped to P06 authorization and P08 tenant mapping until this closes.
+    severity: high
+    owner: unassigned
+
+  CG-06:
+    title: The shared P05 library has an empty test directory
+    detail: >
+      packages/risk-engine/tests/ exists and contains no test files. The money
+      library P06 serves every financial response from therefore has no suite
+      of its own; its behaviour is only exercised indirectly, through P06's
+      tests.
+    consequence: >
+      A regression in decimal parsing, rounding, negative-zero handling or
+      currency scale would be caught only if some P06 test happens to cover
+      that path. `make test` reports this component as NOT_RUN rather than
+      passing it, because an empty suite is not evidence (P09 section 19.3).
+    severity: high
+    owner: unassigned
+    resolution: port the arithmetic golden vectors from apps/p05-risk-engine/tests
+      down to the shared library, or state that the library is covered only
+      through P06 and accept that scope explicitly
+
+  CG-05:
+    title: Fee coverage is structurally NOT_AVAILABLE
+    detail: >
+      P03 does not carry a `fee` field, so P05 must report
+      fee_coverage=NOT_AVAILABLE and no response may be described as an all-in
+      net figure.
+    consequence: Expected and correct today. Recorded so that no consumer "fixes" it with a zero.
+    severity: low
+    owner: product
+    status: accepted-by-design

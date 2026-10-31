@@ -1,0 +1,57 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "postgres-outbox-kafka"
+version = "1.0.0"
+description = "Project 07 - PostgreSQL Outbox & Kafka: transactional outbox, at-least-once relay, idempotent reference consumer"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "prometheus-client>=0.21",
+]
+
+[project.optional-dependencies]
+postgres = ["psycopg[binary]>=3.2"]
+kafka = ["confluent-kafka>=2.5"]
+test = [
+    "pytest>=8.3",
+    "hypothesis>=6.112",
+    "psutil>=6.0",
+]
+
+[project.scripts]
+outbox = "outbox.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+# Both entries are load-bearing. "src" makes the package importable without an
+# install, and "." makes `from tests.conftest import ...` resolve under a bare
+# `pytest` invocation as well as under `python -m pytest`, which would otherwise
+# only work because the latter happens to put the working directory on sys.path.
+pythonpath = [".", "src"]
+# Nothing in this project is async; this only silences pytest-asyncio when it
+# happens to be installed in the ambient environment.
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: fast in-process unit tests",
+    "contract: IT07-xx given/when/then contract tests",
+    "integration: multi-component integration tests",
+    "chaos: kill-point and compound failure campaigns",
+    "property: property-based / stateful / metamorphic tests",
+    "mutation: mutants the suite must kill",
+    "performance: benchmark suites (slow)",
+    "postgres: requires a reachable PostgreSQL (OUTBOX_PG_DSN)",
+    "slow: excluded from the per-commit smoke suite",
+]
+filterwarnings = ["error::DeprecationWarning:outbox.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

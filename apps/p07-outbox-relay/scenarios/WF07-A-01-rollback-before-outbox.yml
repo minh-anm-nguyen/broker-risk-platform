@@ -1,0 +1,52 @@
+# Fault recipe WF07-A-01: the atomicity case.
+#
+# The simplest and most important case in the matrix. If this one can fail
+# without the suite noticing, nothing else in the design matters: a Deal would
+# be committed with no event, and the loss would be silent and permanent.
+#
+# Executable version: tests/contract/test_it07_contracts.py::test_it07_01_business_tx_rollback_leaves_neither_row
+# and tests/chaos/test_kill_points.py (KP07-03, KP07-04, KP07-05, KP07-06).
+
+case_id: WF07-A-01
+priority: P0
+seed: 20261030
+fixture: G07-01
+environment: in-process-broker-model-sqlite
+environment_caveat: >
+  Transaction atomicity is a property of the database and is genuinely
+  exercised here. What is not exercised is survival of an OS or power failure,
+  which needs synchronous=FULL plus a real crash, not an in-process exception.
+
+steps:
+  - action: p03.open_epoch
+    epoch_id: "00000000-0000-4000-8000-000000000001"
+  - action: p03.insert_deal
+    deal_id: D-1001
+    account_id: A-42
+  - inject: exception.rollback
+    at_hook: KP07-04              # after the head bump, before the outbox INSERT
+
+assertions:
+  - deals_table_has_no_row_for_this_deal
+  - event_outbox_has_no_row_for_this_deal
+  - aggregate_head_was_not_advanced
+  - no_kafka_record_exists
+
+expected_invariants: [INV07-01, INV07-04, INV07-07]
+
+capture:
+  - db_snapshot_before_after
+  - aggregate_head_values
+  - kafka_topic_offsets_and_event_ids
+
+# The mutant form of this case -- P03 commits the Deal in one transaction and
+# the outbox row in a second -- must FAIL. It is exercised at
+# tests/mutation/test_mutants_are_killed.py::test_a_deal_committed_without_its_outbox_row_is_caught_by_o1
+mutant_must_fail: p03_commits_deal_and_outbox_in_separate_transactions
+
+result:
+  status: NOT_RUN
+  fault_triggered: false
+  oracle_results: {}
+  evidence_paths: []
+  run_at_utc: null

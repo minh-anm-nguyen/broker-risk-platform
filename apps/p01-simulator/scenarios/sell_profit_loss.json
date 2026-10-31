@@ -1,0 +1,13 @@
+{
+  "scenario_name": "sell-profit-loss",
+  "seed": 7,
+  "generator_version": "1.0",
+  "start_virtual_time": "2026-10-30T00:00:00Z",
+  "account_count": 2,
+  "deal_count": 20,
+  "max_open_positions": 2,
+  "symbols": ["GBPUSD"],
+  "initial_balance_usd": "10000.00",
+  "execution_mode": "bulk_generate",
+  "fault_profile": "none"
+}

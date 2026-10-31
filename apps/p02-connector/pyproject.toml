@@ -1,0 +1,53 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mt5-connector"
+version = "1.0.0"
+description = "Project 02 - MT5 Integration Connector: async port over a blocking broker driver, with bounded admission, epoch fencing and snapshot-correct paging"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "prometheus-client>=0.21",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.112",
+    "psutil>=6.0",
+    "pyyaml>=6.0",
+]
+
+[project.scripts]
+mt5-connector = "mt5_connector.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: fast in-process unit tests",
+    "contract: simulator-contract tests against the Project 01 v1 read contract",
+    "integration: multi-component tests over real TCP with a running source",
+    "chaos: process kill / hang / signal tests (slow, subprocess)",
+    "property: property-based tests",
+    "performance: benchmark and soak tests (slow)",
+    "slow: excluded from the per-commit smoke suite",
+    "whatif: carries one or more WF2-* case ids as evidence",
+]
+filterwarnings = ["error::DeprecationWarning:mt5_connector.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

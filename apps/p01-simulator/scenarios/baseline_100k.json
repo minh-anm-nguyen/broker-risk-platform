@@ -1,0 +1,13 @@
+{
+  "scenario_name": "baseline-100k",
+  "seed": 42,
+  "generator_version": "1.0",
+  "start_virtual_time": "2026-10-30T00:00:00Z",
+  "account_count": 1000,
+  "deal_count": 100000,
+  "max_open_positions": 10000,
+  "symbols": ["EURUSD", "GBPUSD", "AUDUSD"],
+  "initial_balance_usd": "10000.00",
+  "execution_mode": "bulk_generate",
+  "fault_profile": "none"
+}

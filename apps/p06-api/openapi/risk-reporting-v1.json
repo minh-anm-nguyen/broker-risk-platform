@@ -1,0 +1,1904 @@
+{
+  "components": {
+    "schemas": {
+      "ComponentsBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "exposure": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ExposureComponentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "realized": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RealizedComponentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unrealized": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/UnrealizedComponentOut"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "ComponentsBlock",
+        "type": "object"
+      },
+      "CoverageBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "accounts_published": {
+            "title": "Accounts Published",
+            "type": "boolean"
+          },
+          "deals_complete": {
+            "title": "Deals Complete",
+            "type": "boolean"
+          },
+          "fee_coverage": {
+            "enum": [
+              "COVERED",
+              "NOT_AVAILABLE"
+            ],
+            "title": "Fee Coverage",
+            "type": "string"
+          },
+          "positions_published": {
+            "title": "Positions Published",
+            "type": "boolean"
+          },
+          "quote_cut_proven": {
+            "title": "Quote Cut Proven",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "deals_complete",
+          "fee_coverage",
+          "quote_cut_proven",
+          "accounts_published",
+          "positions_published"
+        ],
+        "title": "CoverageBlock",
+        "type": "object"
+      },
+      "CutsBlock": {
+        "additionalProperties": false,
+        "description": "The cut vector the payload is valid for. There is no single global time.",
+        "properties": {
+          "account_scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Account Scan Id"
+          },
+          "captured_at_utc": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Captured At Utc"
+          },
+          "consistency": {
+            "default": "UNPROVEN",
+            "enum": [
+              "COMPATIBLE",
+              "INDEPENDENT",
+              "UNPROVEN"
+            ],
+            "title": "Consistency",
+            "type": "string"
+          },
+          "deal_watermark_seq": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deal Watermark Seq"
+          },
+          "position_scan_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Position Scan Id"
+          },
+          "quote_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Snapshot Id"
+          },
+          "recon_revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recon Revision"
+          }
+        },
+        "title": "CutsBlock",
+        "type": "object"
+      },
+      "DailyReport": {
+        "additionalProperties": false,
+        "description": "Realized deal activity for one UTC calendar day.\n\nThis report knows nothing about the end-of-day position snapshot and never\nimplies it does.",
+        "properties": {
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          },
+          "calculation_id": {
+            "title": "Calculation Id",
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageBlock"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cuts": {
+            "$ref": "#/components/schemas/CutsBlock"
+          },
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "output_digest": {
+            "title": "Output Digest",
+            "type": "string"
+          },
+          "partial_allowed": {
+            "default": false,
+            "title": "Partial Allowed",
+            "type": "boolean"
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodBlock"
+          },
+          "realized": {
+            "$ref": "#/components/schemas/RealizedComponentOut"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "report_date": {
+            "title": "Report Date",
+            "type": "string"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeBlock"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/VersionsBlock"
+          }
+        },
+        "required": [
+          "request_id",
+          "calculation_id",
+          "status",
+          "reason_codes",
+          "currency",
+          "report_date",
+          "scope",
+          "period",
+          "cuts",
+          "versions",
+          "coverage",
+          "realized",
+          "input_digest",
+          "output_digest"
+        ],
+        "title": "DailyReport",
+        "type": "object"
+      },
+      "ExposureComponentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "by_symbol": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/SymbolExposureOut"
+            },
+            "default": {},
+            "title": "By Symbol",
+            "type": "object"
+          },
+          "positions_counted": {
+            "default": 0,
+            "title": "Positions Counted",
+            "type": "integer"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "ExposureComponentOut",
+        "type": "object"
+      },
+      "ExposureResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          },
+          "calculation_id": {
+            "title": "Calculation Id",
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageBlock"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cuts": {
+            "$ref": "#/components/schemas/CutsBlock"
+          },
+          "exposure": {
+            "$ref": "#/components/schemas/ExposureComponentOut"
+          },
+          "group_count": {
+            "title": "Group Count",
+            "type": "integer"
+          },
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "output_digest": {
+            "title": "Output Digest",
+            "type": "string"
+          },
+          "partial_allowed": {
+            "default": false,
+            "title": "Partial Allowed",
+            "type": "boolean"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeBlock"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/VersionsBlock"
+          }
+        },
+        "required": [
+          "request_id",
+          "calculation_id",
+          "status",
+          "reason_codes",
+          "currency",
+          "scope",
+          "cuts",
+          "versions",
+          "coverage",
+          "exposure",
+          "group_count",
+          "input_digest",
+          "output_digest"
+        ],
+        "title": "ExposureResponse",
+        "type": "object"
+      },
+      "PeriodBlock": {
+        "additionalProperties": false,
+        "description": "Half-open ``[start, end)`` interval over realized deal execution time.",
+        "properties": {
+          "end_utc": {
+            "title": "End Utc",
+            "type": "string"
+          },
+          "start_utc": {
+            "title": "Start Utc",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start_utc",
+          "end_utc"
+        ],
+        "title": "PeriodBlock",
+        "type": "object"
+      },
+      "PnlResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          },
+          "calculation_id": {
+            "title": "Calculation Id",
+            "type": "string"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageBlock"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cuts": {
+            "$ref": "#/components/schemas/CutsBlock"
+          },
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "output_digest": {
+            "title": "Output Digest",
+            "type": "string"
+          },
+          "partial_allowed": {
+            "default": false,
+            "title": "Partial Allowed",
+            "type": "boolean"
+          },
+          "period": {
+            "$ref": "#/components/schemas/PeriodBlock"
+          },
+          "realized": {
+            "$ref": "#/components/schemas/RealizedComponentOut"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeBlock"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/VersionsBlock"
+          }
+        },
+        "required": [
+          "request_id",
+          "calculation_id",
+          "status",
+          "reason_codes",
+          "currency",
+          "scope",
+          "period",
+          "cuts",
+          "versions",
+          "coverage",
+          "realized",
+          "input_digest",
+          "output_digest"
+        ],
+        "title": "PnlResponse",
+        "type": "object"
+      },
+      "PositionOut": {
+        "additionalProperties": false,
+        "properties": {
+          "account_id": {
+            "title": "Account Id",
+            "type": "string"
+          },
+          "open_price": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Open Price",
+            "type": "string"
+          },
+          "position_id": {
+            "title": "Position Id",
+            "type": "string"
+          },
+          "presence": {
+            "title": "Presence",
+            "type": "string"
+          },
+          "side": {
+            "enum": [
+              "BUY",
+              "SELL"
+            ],
+            "title": "Side",
+            "type": "string"
+          },
+          "source_status": {
+            "title": "Source Status",
+            "type": "string"
+          },
+          "symbol": {
+            "title": "Symbol",
+            "type": "string"
+          },
+          "volume_lots": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Volume Lots",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position_id",
+          "account_id",
+          "symbol",
+          "side",
+          "volume_lots",
+          "open_price",
+          "source_status",
+          "presence"
+        ],
+        "title": "PositionOut",
+        "type": "object"
+      },
+      "PositionsPage": {
+        "additionalProperties": false,
+        "description": "A page from one verified published scan. Pages are never stitched across scans.",
+        "properties": {
+          "cuts": {
+            "$ref": "#/components/schemas/CutsBlock"
+          },
+          "has_more": {
+            "default": false,
+            "title": "Has More",
+            "type": "boolean"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/PositionOut"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor"
+          },
+          "page_size": {
+            "title": "Page Size",
+            "type": "integer"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeBlock"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/VersionsBlock"
+          }
+        },
+        "required": [
+          "request_id",
+          "scope",
+          "cuts",
+          "versions",
+          "items",
+          "page_size"
+        ],
+        "title": "PositionsPage",
+        "type": "object"
+      },
+      "ProblemResponse": {
+        "additionalProperties": false,
+        "description": "RFC 9457 problem document, declared so it appears in the OpenAPI schema.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "detail": {
+            "title": "Detail",
+            "type": "string"
+          },
+          "instance": {
+            "title": "Instance",
+            "type": "string"
+          },
+          "reason_codes": {
+            "default": [],
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "retryable": {
+            "title": "Retryable",
+            "type": "boolean"
+          },
+          "status": {
+            "title": "Status",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "type": {
+            "title": "Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "type",
+          "title",
+          "status",
+          "detail",
+          "instance",
+          "code",
+          "request_id",
+          "retryable"
+        ],
+        "title": "ProblemResponse",
+        "type": "object"
+      },
+      "RealizedComponentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "commission_usd": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Commission Usd"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "deals_counted": {
+            "default": 0,
+            "title": "Deals Counted",
+            "type": "integer"
+          },
+          "fee_coverage": {
+            "anyOf": [
+              {
+                "enum": [
+                  "COVERED",
+                  "NOT_AVAILABLE"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fee Coverage"
+          },
+          "gross_usd": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Gross Usd"
+          },
+          "net_excluding_fee_usd": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Net Excluding Fee Usd"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "swap_usd": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Swap Usd"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RealizedComponentOut",
+        "type": "object"
+      },
+      "RiskResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "audit_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Audit Id"
+          },
+          "calculation_id": {
+            "title": "Calculation Id",
+            "type": "string"
+          },
+          "components": {
+            "$ref": "#/components/schemas/ComponentsBlock"
+          },
+          "composite_total": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Composite Total"
+          },
+          "coverage": {
+            "$ref": "#/components/schemas/CoverageBlock"
+          },
+          "currency": {
+            "title": "Currency",
+            "type": "string"
+          },
+          "cuts": {
+            "$ref": "#/components/schemas/CutsBlock"
+          },
+          "input_digest": {
+            "title": "Input Digest",
+            "type": "string"
+          },
+          "output_digest": {
+            "title": "Output Digest",
+            "type": "string"
+          },
+          "partial_allowed": {
+            "default": false,
+            "title": "Partial Allowed",
+            "type": "boolean"
+          },
+          "reason_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Reason Codes",
+            "type": "array"
+          },
+          "request_id": {
+            "title": "Request Id",
+            "type": "string"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/ScopeBlock"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "versions": {
+            "$ref": "#/components/schemas/VersionsBlock"
+          }
+        },
+        "required": [
+          "request_id",
+          "calculation_id",
+          "status",
+          "reason_codes",
+          "currency",
+          "scope",
+          "cuts",
+          "versions",
+          "coverage",
+          "components",
+          "input_digest",
+          "output_digest"
+        ],
+        "title": "RiskResponse",
+        "type": "object"
+      },
+      "ScopeBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "account_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Account Ids",
+            "type": "array"
+          },
+          "epoch_id": {
+            "title": "Epoch Id",
+            "type": "string"
+          },
+          "source_id": {
+            "title": "Source Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source_id",
+          "epoch_id",
+          "account_ids"
+        ],
+        "title": "ScopeBlock",
+        "type": "object"
+      },
+      "SymbolExposureOut": {
+        "additionalProperties": false,
+        "properties": {
+          "gross_units": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Gross Units",
+            "type": "string"
+          },
+          "long_units": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Long Units",
+            "type": "string"
+          },
+          "net_units": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Net Units",
+            "type": "string"
+          },
+          "short_units": {
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Short Units",
+            "type": "string"
+          },
+          "unit_currency": {
+            "title": "Unit Currency",
+            "type": "string"
+          }
+        },
+        "required": [
+          "unit_currency",
+          "long_units",
+          "short_units",
+          "gross_units",
+          "net_units"
+        ],
+        "title": "SymbolExposureOut",
+        "type": "object"
+      },
+      "UnrealizedComponentOut": {
+        "additionalProperties": false,
+        "properties": {
+          "by_symbol": {
+            "additionalProperties": {
+              "maxLength": 40,
+              "minLength": 1,
+              "type": "string"
+            },
+            "default": {},
+            "title": "By Symbol",
+            "type": "object"
+          },
+          "currency": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Currency"
+          },
+          "quote_snapshot_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quote Snapshot Id"
+          },
+          "reason_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason Code"
+          },
+          "status": {
+            "enum": [
+              "READY",
+              "DEGRADED",
+              "BLOCKED",
+              "UNSUPPORTED",
+              "INCONCLUSIVE"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_usd": {
+            "anyOf": [
+              {
+                "maxLength": 40,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Usd"
+          },
+          "valuation_as_of": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Valuation As Of"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "UnrealizedComponentOut",
+        "type": "object"
+      },
+      "VersionsBlock": {
+        "additionalProperties": false,
+        "properties": {
+          "api_schema": {
+            "title": "Api Schema",
+            "type": "string"
+          },
+          "result_contract": {
+            "title": "Result Contract",
+            "type": "string"
+          },
+          "risk_policy": {
+            "title": "Risk Policy",
+            "type": "string"
+          },
+          "symbol_catalog": {
+            "title": "Symbol Catalog",
+            "type": "string"
+          }
+        },
+        "required": [
+          "risk_policy",
+          "symbol_catalog",
+          "api_schema",
+          "result_contract"
+        ],
+        "title": "VersionsBlock",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "description": "Read-only broker risk reporting. Monetary values are JSON strings; every financial payload carries its data cut, policy versions and digests.",
+    "title": "Broker Risk Reporting API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/api/v1/accounts/{account_id}/pnl": {
+      "get": {
+        "operationId": "account_pnl_api_v1_accounts__account_id__pnl_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PnlResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Realized P&L components and fee coverage",
+        "tags": [
+          "risk"
+        ]
+      }
+    },
+    "/api/v1/accounts/{account_id}/risk": {
+      "get": {
+        "operationId": "account_risk_api_v1_accounts__account_id__risk_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "account_id",
+            "required": true,
+            "schema": {
+              "title": "Account Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Scoped exposure, realized and unrealized summaries",
+        "tags": [
+          "risk"
+        ]
+      }
+    },
+    "/api/v1/exposure": {
+      "get": {
+        "operationId": "exposure_api_v1_exposure_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ExposureResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Exposure by symbol for the authorized scope",
+        "tags": [
+          "exposure"
+        ]
+      }
+    },
+    "/api/v1/positions": {
+      "get": {
+        "operationId": "list_positions_api_v1_positions_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PositionsPage"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too Many Requests"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "summary": "Current position listing for the authorized scope",
+        "tags": [
+          "positions"
+        ]
+      }
+    },
+    "/api/v1/reports/daily": {
+      "get": {
+        "operationId": "daily_report_api_v1_reports_daily_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DailyReport"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Realized deal summary for one UTC day",
+        "tags": [
+          "reports"
+        ]
+      }
+    },
+    "/api/v1/risk-calculations": {
+      "post": {
+        "operationId": "risk_calculations_api_v1_risk_calculations_post",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RiskResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Content Too Large"
+          },
+          "415": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unsupported Media Type"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Unprocessable Content"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Too Many Requests"
+          },
+          "502": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Bad Gateway"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Service Unavailable"
+          },
+          "504": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemResponse"
+                }
+              },
+              "application/problem+json": {}
+            },
+            "description": "Gateway Timeout"
+          }
+        },
+        "summary": "Typed read-only risk calculation",
+        "tags": [
+          "risk"
+        ]
+      }
+    },
+    "/health/live": {
+      "get": {
+        "description": "True whenever the event loop is servicing requests.",
+        "operationId": "live_health_live_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Process liveness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/health/ready": {
+      "get": {
+        "description": "Bounded checks on credentials, projections, audit sink and capacity.",
+        "operationId": "ready_health_ready_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Instance readiness",
+        "tags": [
+          "health"
+        ]
+      }
+    },
+    "/internal/metrics": {
+      "get": {
+        "description": "Metrics scrape. Not publicly routable in a deployment.",
+        "operationId": "metrics_internal_metrics_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Prometheus metrics",
+        "tags": [
+          "internal"
+        ]
+      }
+    }
+  }
+}

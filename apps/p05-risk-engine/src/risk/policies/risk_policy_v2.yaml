@@ -1,0 +1,64 @@
+# risk-policy-v2 -- identical to v1 except for the rounding mode.
+#
+# It exists to prove a property, not to be a better policy: two policies that
+# differ only in rounding must produce two distinct, separately keyed results
+# for the same inputs (WF5-094, WF5-265). A build that cannot tell them apart
+# is a build whose cache can serve v1 numbers under a v2 label.
+policy_version: risk-policy-v2
+description: Variant policy differing only in rounding mode, used to prove that a policy change produces a distinct, separately cached result.
+
+money:
+  # Applied once, at the reporting boundary -- never per row.
+  rounding_mode: ROUND_HALF_UP
+  internal_precision: 50
+  max_scale: 12
+  max_digits: 38
+
+supported_profile:
+  calc_modes: [FOREX_LINEAR_P0]
+  reporting_currencies: [USD]
+  # The simulator fixture contract guarantees a trading-only deal stream; any
+  # other source must supply a full deal taxonomy before deals are aggregated.
+  source_capability: SIMULATOR_TRADING_ONLY_V1
+
+quotes:
+  # Live-like synthetic testing threshold. Historical valuation uses its own
+  # policy and deliberately has no live freshness bound.
+  max_age_seconds_live: 5
+  max_age_seconds_historical: null
+  reject_lookahead: true
+  exposure_valuation_basis: MID
+
+realized:
+  window_semantics: HALF_OPEN_START_INCLUSIVE
+  # Project 03 carries no DEAL_FEE column, so no all-in net may be published.
+  fee_fields_available: false
+  fee_coverage: NOT_AVAILABLE
+  non_trading_reported_separately: true
+
+gates:
+  require_epoch_active: true
+  require_position_scan_published: true
+  require_deal_watermark_terminal: true
+  require_deal_watermark_unfiltered: true
+  require_recon_evidence: true
+  # Without an upstream freeze proof the entity cuts are merely INDEPENDENT,
+  # and a strict composite over independent cuts is refused.
+  require_cut_proof_for_composite: true
+  unknown_recon_status_blocks: true
+
+limits:
+  max_accounts_per_request: 100
+  max_positions_per_request: 10000
+  max_deals_per_window: 1000000
+  read_batch_rows: 1000
+  max_concurrent_jobs: 4
+  max_queued_jobs: 16
+  wall_clock_deadline_seconds: 30
+  max_input_bytes: 33554432
+
+audit:
+  # A strict READY without a durable audit record is not releasable: the number
+  # would be unreproducible the moment the inputs move on.
+  mandatory_for_ready: true
+  retry_attempts: 3

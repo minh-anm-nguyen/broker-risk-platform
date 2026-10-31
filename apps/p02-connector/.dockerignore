@@ -1,0 +1,5 @@
+artifacts
+tests
+docs
+.venv
+*.md

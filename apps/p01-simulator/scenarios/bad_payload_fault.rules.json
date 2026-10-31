@@ -1,0 +1,61 @@
+{
+  "_note": "Companion fault rules for scenarios/bad_payload_fault.json. POST each item to /admin/v1/faults after the run is generated. Kept separate from the scenario on purpose: declaring a fault must never change the generated dataset or its canonical digest (ADR-006, INV-12).",
+  "rules": [
+    {
+      "rule_id": "drop-last-deal-once",
+      "priority": 10,
+      "scope": { "method": "GET", "path": "/v1/deals" },
+      "trigger": { "kind": "nth_matching_request", "n": 3, "max_activations": 1, "ttl_seconds": 600 },
+      "action": { "mode": "drop_one_item", "parameters": { "selection": "last" } },
+      "_expect": "Request 3 returns 200 with one fewer deal. The downstream connector must detect the gap; the canonical digest must not change."
+    },
+    {
+      "rule_id": "duplicate-first-deal-once",
+      "priority": 20,
+      "scope": { "method": "GET", "path": "/v1/deals" },
+      "trigger": { "kind": "nth_matching_request", "n": 5, "max_activations": 1, "ttl_seconds": 600 },
+      "action": { "mode": "duplicate_one_item", "parameters": { "selection": "first" } },
+      "_expect": "One deal_id appears twice in a page. Downstream idempotency must absorb it."
+    },
+    {
+      "rule_id": "omit-deal-id-once",
+      "priority": 30,
+      "scope": { "method": "GET", "path": "/v1/deals" },
+      "trigger": { "kind": "nth_matching_request", "n": 7, "max_activations": 1, "ttl_seconds": 600 },
+      "action": { "mode": "omit_field", "parameters": { "field": "deal_id", "selection": "first" } },
+      "_expect": "Schema validation downstream must reject the item rather than store a partial record."
+    },
+    {
+      "rule_id": "poison-decimal-once",
+      "priority": 40,
+      "scope": { "method": "GET", "path": "/v1/deals" },
+      "trigger": { "kind": "nth_matching_request", "n": 9, "max_activations": 1, "ttl_seconds": 600 },
+      "action": {
+        "mode": "replace_field_value",
+        "parameters": { "field": "price", "value": "1e9999", "selection": "first" }
+      },
+      "_expect": "A finite but absurd decimal. Downstream must refuse it without exhausting memory (WF-067)."
+    },
+    {
+      "rule_id": "simulated-upstream-timeout",
+      "priority": 50,
+      "scope": { "method": "GET", "path": "/v1/deals" },
+      "trigger": { "kind": "nth_matching_request", "n": 11, "max_activations": 1, "ttl_seconds": 600 },
+      "action": { "mode": "http_error", "parameters": { "status": 504, "retry_after_seconds": 2 } },
+      "_expect": "A retryable transport-shaped failure with a concrete backoff hint."
+    },
+    {
+      "rule_id": "stale-snapshot-once",
+      "priority": 60,
+      "scope": { "method": "GET", "path": "/v1/deals" },
+      "trigger": { "kind": "nth_matching_request", "n": 13, "max_activations": 1, "ttl_seconds": 600 },
+      "action": { "mode": "stale_snapshot", "parameters": { "seq_delta": 50 } },
+      "_expect": "snapshot_seq goes backwards. A consumer tracking it must notice rather than advance its watermark."
+    }
+  ],
+  "_not_covered_here": [
+    "TCP reset, half-open connections, DNS failure and MTU changes need a network proxy; a middleware cannot produce them, and a rule that claimed to would make a test that proves nothing (section 6.4).",
+    "Disk full, read-only mounts and SIGKILL are storage/process faults driven by the failpoints in simulator.persistence.failpoints and the chaos suite, not by this API.",
+    "Power-loss durability is NOT TESTED. kill -9 is not a power cut (WF-087)."
+  ]
+}

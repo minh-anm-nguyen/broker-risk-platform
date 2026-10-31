@@ -1,0 +1,33 @@
+# IT-06: HTTP 200 with a payload no connector may accept.
+scenario_id: WF2-L-01
+implemented_by: tests/integration/test_source_faults.py::TestPoisonPayloads
+simulator:
+  seed: 42
+  initial_deals: 50
+connector:
+  worker_mode: thread
+  page_size: 5
+  page_deadline_ms: 3000
+  max_attempts_per_read: 3
+injection:
+  layer: simulator_control_plane
+  credential: admin
+  variants:
+    - {mode: float_money, parameters: {field: price}}
+    - {mode: replace_field_value, parameters: {field: commission, value: NaN}}
+    - {mode: malformed_json}
+    - {mode: truncate_response, parameters: {keep_bytes: 40}}
+    - {mode: wrong_content_type}
+    - {mode: duplicate_replace_item}
+    - {mode: deep_nesting, parameters: {depth: 10000}}
+    - {mode: duplicate_json_key}
+    - {mode: oversize_body, parameters: {bytes: 4000000}}
+fault_activation_expected: 1
+assertions:
+  - zero_dtos_emitted
+  - exactly_one_read_attempt      # invalid data is never retried
+  - typed_error_is_contract_or_integrity
+  - error_details_contain_no_field_value
+  - source_canonical_data_unchanged
+artifacts:
+  - what_if_results.json

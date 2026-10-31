@@ -1,0 +1,172 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broker-risk-platform.local/contracts/deal-recorded-v1.schema.json",
+  "title": "DealRecorded v1 (P07 outbox envelope on Kafka)",
+  "description": "The event P07 commits into event_outbox in the same transaction as the business row, relays to Kafka topic broker.deals.v1, and P08 lands append-only. Delivery is at-least-once: the same event_id may arrive more than once and a consumer must deduplicate. Envelope fields mirror outbox.events.envelope.Envelope; payload fields mirror the DealRecorded FieldSpec list in outbox.events.schema.",
+  "$defs": {
+    "decimalString": {
+      "description": "Canonical decimal string. No exponent, no leading '+', no bare '.5' or '5.'. Money never travels as a JSON number.",
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,10})?$"
+    },
+    "sha256": {
+      "type": "string",
+      "pattern": "^[0-9a-f]{64}$"
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "event_id",
+    "dedupe_key",
+    "event_type",
+    "schema_version",
+    "source_id",
+    "epoch_id",
+    "aggregate_type",
+    "aggregate_id",
+    "aggregate_version",
+    "event_time",
+    "created_at",
+    "payload_sha256",
+    "payload"
+  ],
+  "properties": {
+    "event_id": {
+      "description": "Stable identity for one business change. A retry reuses it; it is the consumer's deduplication key.",
+      "type": "string",
+      "format": "uuid"
+    },
+    "dedupe_key": {
+      "description": "Semantic key. Two events with the same dedupe_key but different payload_sha256 are an integrity incident, not a duplicate.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "event_type": {
+      "const": "DealRecorded"
+    },
+    "schema_version": {
+      "type": "integer",
+      "const": 1
+    },
+    "source_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "epoch_id": {
+      "description": "Source incarnation. Events from two epochs are never merged, even when a Deal id repeats.",
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "aggregate_type": {
+      "const": "account"
+    },
+    "aggregate_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "aggregate_version": {
+      "description": "Per-aggregate ordering guard only. NOT a Deal revision, NOT a global clock, NOT a Kafka offset.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "event_time": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "payload_sha256": {
+      "$ref": "#/$defs/sha256"
+    },
+    "provenance": {
+      "description": "Where this event's facts came from: source cut, scan ids, watermark. Absence is not permission to assume a cut.",
+      "type": "object"
+    },
+    "payload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deal_id",
+        "account_id",
+        "symbol",
+        "side",
+        "entry_kind",
+        "volume_lots",
+        "price",
+        "realized_pnl_gross",
+        "commission",
+        "swap",
+        "money_currency_status",
+        "executed_at"
+      ],
+      "properties": {
+        "deal_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "account_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "position_id": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "symbol": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "side": {
+          "enum": ["BUY", "SELL"]
+        },
+        "entry_kind": {
+          "enum": ["IN", "OUT", "INOUT", "BALANCE"]
+        },
+        "volume_lots": {
+          "$ref": "#/$defs/decimalString"
+        },
+        "price": {
+          "$ref": "#/$defs/decimalString"
+        },
+        "realized_pnl_gross": {
+          "description": "Signed. Keeps P03's value; never re-signed downstream.",
+          "$ref": "#/$defs/decimalString"
+        },
+        "commission": {
+          "description": "Signed. May legitimately be positive or negative; a consumer must not normalise the sign.",
+          "$ref": "#/$defs/decimalString"
+        },
+        "swap": {
+          "description": "Signed, same rule as commission.",
+          "$ref": "#/$defs/decimalString"
+        },
+        "money_currency": {
+          "description": "Absent when the source did not declare one. Never inferred from the symbol.",
+          "type": ["string", "null"],
+          "pattern": "^[A-Z]{3}$"
+        },
+        "money_currency_status": {
+          "description": "Explicit statement about whether the currency is known. An unknown currency blocks aggregation; it does not default to USD.",
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "executed_at": {
+          "description": "Source execution time. A new Deal may carry an older executed_at than one already published; event_time ordering is not business ordering.",
+          "type": "string",
+          "format": "date-time"
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "broker-analytics-clickhouse"
+version = "1.0.0"
+description = "Project 08 - ClickHouse Broker Analytics: Kafka -> ClickHouse ingestion, immutable verified analytics builds, fenced publication"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "prometheus-client>=0.21",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "httpx>=0.27",
+    "hypothesis>=6.112",
+    "psutil>=6.0",
+    "pyyaml>=6.0",
+]
+# Real infrastructure drivers. The test suite never needs them: the
+# deterministic in-process adapters model the same semantics (see
+# adapters/README rationale in docs section 9.1).
+infra = [
+    "psycopg[binary]>=3.2",
+    "confluent-kafka>=2.5",
+    "httpx>=0.27",
+]
+
+[project.scripts]
+p08 = "analytics.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: fast in-process unit tests",
+    "contract: cross-project contract tests (P03/P04/P05/P07 fixtures, HTTP API)",
+    "component: single-adapter tests (Kafka, ClickHouse, control plane)",
+    "integration: multi-component tests (IT08-01..IT08-18)",
+    "chaos: deterministic kill points and compound campaigns (KP08-*, CC08-*)",
+    "property: property-based, metamorphic and stateful model tests",
+    "whatif: scenarios mapped to the 528-case what-if matrix",
+    "performance: benchmark and load tests (slow)",
+    "slow: excluded from the per-commit smoke suite",
+]
+filterwarnings = ["error::DeprecationWarning:analytics.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

@@ -1,0 +1,55 @@
+# Project 09 - Integration Testing & Performance platform.
+#
+# Not an installable distribution. P09 section 17 lays this tree out as
+# tooling directories (runner/, oracle/, fixtures/, fault-injectors/), so
+# `pythonpath` is how tests reach them rather than a package install.
+#
+# Separation of duty (P09 section 17): the oracle must NOT import P05 finance
+# code and must NOT trust P08's build status. There is deliberately no
+# dependency on any component package here. If an oracle module ever needs
+# `risk_engine` or `analytics` to compute an expected value, that oracle has
+# stopped being independent and the test it backs proves nothing.
+
+[project]
+name = "broker-risk-test-platform"
+version = "0.1.0"
+description = "P09 scenario orchestration, independent oracles, fault injection and release gates"
+requires-python = ">=3.12"
+dependencies = [
+    "pyyaml>=6.0",
+]
+
+[project.optional-dependencies]
+# jsonschema turns contracts/*.schema.json from "present and parseable" into
+# real payload validation (T09-09).
+schema = ["jsonschema>=4.23"]
+test = [
+    "pytest>=8.3",
+    "hypothesis>=6.112",
+    "httpx>=0.27",
+    "psutil>=6.0",
+]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = "-q --strict-markers"
+# The marker set mirrors the P09 suite layout in section 17. A scenario that
+# cannot be attributed to one of these is not yet a test.
+markers = [
+    "unit: fast in-process checks of the harness itself",
+    "contract: contract-freeze and compatibility-matrix checks (T09-09)",
+    "integration: multi-component runs against the T1 topology (T09-18..21)",
+    "e2e: the 20 representative acceptance flows (T09-22)",
+    "stateful: property and state-machine campaigns (T09-24)",
+    "chaos: crash and kill-point tests, CP09-01..40 (T09-23)",
+    "load: benchmark and arrival-rate work, B09-01..16 (T09-25..28)",
+    "dr: backup, restore and RPO/RTO drills (T09-31)",
+    "slow: excluded from the per-commit sweep",
+]
+# A scenario that silently stops asserting is worse than one that fails.
+filterwarnings = ["error::DeprecationWarning:runner.*", "error::DeprecationWarning:oracle.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

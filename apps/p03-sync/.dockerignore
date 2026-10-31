@@ -1,0 +1,9 @@
+.git
+.venv
+.pgdata
+artifacts
+.pytest_cache
+.hypothesis
+__pycache__
+*.pyc
+.env

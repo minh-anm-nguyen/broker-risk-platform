@@ -1,0 +1,29 @@
+# IT-02: the caller deadline expires while the driver call is still running.
+scenario_id: WF2-F-03
+implemented_by: tests/integration/test_async_isolation.py::TestTimeoutIsNotCancellation
+simulator:
+  seed: 42
+  initial_deals: 50
+connector:
+  worker_mode: thread
+  max_queue: 2
+  page_size: 10
+  page_deadline_ms: 150
+  queue_wait_cap_ms: 100
+  hung_call_hard_limit_ms: 60000
+injection:
+  layer: driver_double
+  action: {mode: block_until_released}
+fault_activation_expected: 1
+assertions:
+  - caller_receives_deadline_exceeded
+  - session_slot_not_released    # the one that distinguishes this design
+  - active_native_calls_at_most_one
+  - late_completion_discarded_and_counted
+  - no_second_call_on_the_same_session
+artifacts:
+  - what_if_results.json
+notes: >-
+  The assertion that matters is session_slot_not_released. A timeout is not a
+  cancellation, and a worker is not idle because the coroutine waiting on it
+  gave up.

@@ -1,0 +1,13 @@
+{
+  "scenario_name": "paging-10k",
+  "seed": 23,
+  "generator_version": "1.0",
+  "start_virtual_time": "2026-10-30T00:00:00Z",
+  "account_count": 200,
+  "deal_count": 10000,
+  "max_open_positions": 600,
+  "symbols": ["EURUSD", "GBPUSD", "AUDUSD"],
+  "initial_balance_usd": "10000.00",
+  "execution_mode": "bulk_generate",
+  "fault_profile": "none"
+}

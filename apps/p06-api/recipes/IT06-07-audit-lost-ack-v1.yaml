@@ -1,0 +1,38 @@
+# Fault recipe: the audit row commits but the acknowledgement is lost.
+#
+# The service must prove durability by audit_id rather than failing, and must
+# end with exactly one receipt. See design doc section 15, rule K06-16.
+recipe_id: IT06-07-audit-lost-ack-v1
+description: >
+  Commit the audit record, drop the acknowledgement, and require the service to
+  resolve it by looking the receipt up by its immutable id.
+
+world:
+  source_id: sim-broker-a
+  epoch_id: E1
+  recon_revision: recon-R10
+
+principal:
+  subject: analyst-a
+  roles: [risk_analyst]
+
+action:
+  method: GET
+  path: /api/v1/accounts/00042/risk
+  query:
+    source_id: sim-broker-a
+
+injections:
+  - at: audit.lose_commit_ack
+    action: arm
+
+expect:
+  http_status: 200
+  response_has_financial_amounts: true
+  audit_rows: 1
+  audit_decisions_include: [ALLOW]
+  receipt_matches_response_audit_id: true
+  required_evidence:
+    - injection_fired
+    - audit_row_count
+    - http_capture

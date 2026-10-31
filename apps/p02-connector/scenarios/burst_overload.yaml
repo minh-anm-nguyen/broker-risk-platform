@@ -1,0 +1,28 @@
+# IT-08: 100 callers, one serial worker, a queue of 32.
+scenario_id: WF2-M-01
+implemented_by: tests/integration/test_overload_and_shutdown.py::TestBurstOverload
+simulator:
+  seed: 42
+  initial_deals: 500
+connector:
+  worker_mode: thread
+  max_queue: 32
+  page_size: 10
+  page_deadline_ms: 1200
+  queue_wait_cap_ms: 600
+injection:
+  layer: driver_double
+  action: {mode: delay, parameters: {delay_ms: 200}}
+load:
+  concurrent_callers: 100
+fault_activation_expected: 1
+assertions:
+  - queue_depth_at_most_32
+  - admitted_plus_rejected_equals_offered
+  - rejection_latency_under_100ms
+  - active_native_calls_at_most_one
+  - no_thread_spawned_per_caller
+  - rss_bounded
+artifacts:
+  - benchmark.json
+  - what_if_results.json

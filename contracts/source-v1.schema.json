@@ -1,0 +1,74 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broker-risk-platform.local/contracts/source-v1.schema.json",
+  "title": "Simulator source metadata v1",
+  "description": "The P01 /v1/meta envelope, as consumed by P02 and by the P09 independent oracle. Field names mirror simulator.api.schemas.MetaOut. These are SIMULATOR semantics: run_id, generation, snapshot_seq and source_seq do not exist in a real MT5 Manager SDK and no test may treat their presence as evidence about one.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "snapshot_seq",
+    "account_count",
+    "deal_count",
+    "open_position_count",
+    "capabilities"
+  ],
+  "properties": {
+    "run_id": {
+      "description": "Active run, or null when no run has been created.",
+      "type": ["string", "null"],
+      "maxLength": 64
+    },
+    "generation": {
+      "description": "Incremented by a reset. A new generation is a new source incarnation and must never be merged with the previous one.",
+      "type": ["integer", "null"],
+      "minimum": 0
+    },
+    "scenario_name": {
+      "type": ["string", "null"],
+      "maxLength": 128
+    },
+    "seed": {
+      "description": "Deterministic generation seed. Replay is guaranteed only within one generator version.",
+      "type": ["integer", "null"]
+    },
+    "spec_hash": {
+      "description": "Digest of the scenario specification that produced this run.",
+      "type": ["string", "null"],
+      "pattern": "^[0-9a-f]{64}$"
+    },
+    "status": {
+      "description": "Run lifecycle state. READ_ONLY_REPAIR_REQUIRED means projections disagree with the event log and a human must decide, so readiness is false.",
+      "type": ["string", "null"]
+    },
+    "snapshot_seq": {
+      "description": "Upper bound over the source event log. NOT a Deal count and NOT a Deal id.",
+      "type": "integer",
+      "minimum": 0
+    },
+    "virtual_time": {
+      "description": "Current virtual clock reading, ISO-8601 UTC.",
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "start_virtual_time": {
+      "type": ["string", "null"],
+      "format": "date-time"
+    },
+    "account_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "deal_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open_position_count": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "capabilities": {
+      "description": "What this source can and cannot prove. A consumer must read this instead of assuming a capability exists.",
+      "type": "object"
+    }
+  }
+}

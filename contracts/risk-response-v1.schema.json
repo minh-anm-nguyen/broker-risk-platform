@@ -1,0 +1,198 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://broker-risk-platform.local/contracts/risk-response-v1.schema.json",
+  "title": "Risk report response v1 (P06 HTTP)",
+  "description": "The financial payload P06 serves. Mirrors risk_api.contracts.responses.RiskResponse and its blocks. Two rules a consumer must not relax: HTTP 200 does not mean READY, and every monetary value is a canonical decimal STRING. A payload without a valid cuts/versions/coverage block is not a usable financial answer regardless of status code.",
+  "$defs": {
+    "decimalString": {
+      "type": "string",
+      "pattern": "^-?(?:0|[1-9][0-9]{0,17})(?:\\.[0-9]{1,10})?$"
+    },
+    "status": {
+      "description": "READY requires every prerequisite verified. DEGRADED, BLOCKED, UNSUPPORTED and INCONCLUSIVE are distinct and must survive transport; none of them may be reported as success by omission.",
+      "enum": ["READY", "DEGRADED", "BLOCKED", "UNSUPPORTED", "INCONCLUSIVE"]
+    },
+    "scopeBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["source_id", "epoch_id", "account_ids"],
+      "properties": {
+        "source_id": { "type": "string" },
+        "epoch_id": { "type": "string" },
+        "account_ids": {
+          "description": "Derived from trusted identity claims. A client-supplied selector can never widen this.",
+          "type": "array",
+          "items": { "type": "string" }
+        }
+      }
+    },
+    "cutsBlock": {
+      "description": "The cut vector this payload is valid for. There is no single global time; consistency states which, if any, alignment was proven.",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "account_scan_id": { "type": ["string", "null"] },
+        "position_scan_id": { "type": ["string", "null"] },
+        "deal_watermark_seq": { "type": ["integer", "null"], "minimum": 0 },
+        "quote_snapshot_id": { "type": ["string", "null"] },
+        "recon_revision": { "type": ["string", "null"] },
+        "consistency": {
+          "description": "UNPROVEN is the default and is honest. COMPATIBLE requires evidence; it is never assumed because a read happened inside one transaction.",
+          "enum": ["COMPATIBLE", "INDEPENDENT", "UNPROVEN"],
+          "default": "UNPROVEN"
+        },
+        "captured_at_utc": { "type": ["string", "null"], "format": "date-time" }
+      }
+    },
+    "versionsBlock": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["risk_policy", "symbol_catalog", "api_schema", "result_contract"],
+      "properties": {
+        "risk_policy": { "type": "string" },
+        "symbol_catalog": { "type": "string" },
+        "api_schema": { "type": "string" },
+        "result_contract": { "type": "string" }
+      }
+    },
+    "coverageBlock": {
+      "description": "What the numbers do and do not cover. fee_coverage NOT_AVAILABLE means no figure here may be described as an all-in net.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "deals_complete",
+        "fee_coverage",
+        "quote_cut_proven",
+        "accounts_published",
+        "positions_published"
+      ],
+      "properties": {
+        "deals_complete": { "type": "boolean" },
+        "fee_coverage": { "enum": ["COVERED", "NOT_AVAILABLE"] },
+        "quote_cut_proven": { "type": "boolean" },
+        "accounts_published": { "type": "boolean" },
+        "positions_published": { "type": "boolean" }
+      }
+    },
+    "symbolExposure": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["unit_currency", "long_units", "short_units", "gross_units", "net_units"],
+      "properties": {
+        "unit_currency": {
+          "description": "The unit these quantities are measured in. Quantities in different units are never summed.",
+          "type": "string"
+        },
+        "long_units": { "$ref": "#/$defs/decimalString" },
+        "short_units": { "$ref": "#/$defs/decimalString" },
+        "gross_units": { "$ref": "#/$defs/decimalString" },
+        "net_units": { "$ref": "#/$defs/decimalString" }
+      }
+    },
+    "exposureComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "reason_code": { "type": ["string", "null"] },
+        "positions_counted": { "type": "integer", "minimum": 0, "default": 0 },
+        "by_symbol": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/symbolExposure" }
+        }
+      }
+    },
+    "realizedComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "reason_code": { "type": ["string", "null"] },
+        "currency": { "type": ["string", "null"] },
+        "gross_usd": { "oneOf": [{ "$ref": "#/$defs/decimalString" }, { "type": "null" }] },
+        "commission_usd": { "oneOf": [{ "$ref": "#/$defs/decimalString" }, { "type": "null" }] },
+        "swap_usd": { "oneOf": [{ "$ref": "#/$defs/decimalString" }, { "type": "null" }] },
+        "net_excluding_fee_usd": {
+          "description": "Named for what it is. It excludes fees because P03 carries no fee field.",
+          "oneOf": [{ "$ref": "#/$defs/decimalString" }, { "type": "null" }]
+        },
+        "fee_coverage": { "enum": ["COVERED", "NOT_AVAILABLE", null] },
+        "deals_counted": { "type": "integer", "minimum": 0, "default": 0 }
+      }
+    },
+    "unrealizedComponent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["status"],
+      "properties": {
+        "status": { "$ref": "#/$defs/status" },
+        "reason_code": { "type": ["string", "null"] },
+        "currency": { "type": ["string", "null"] },
+        "total_usd": { "oneOf": [{ "$ref": "#/$defs/decimalString" }, { "type": "null" }] },
+        "by_symbol": {
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/decimalString" }
+        },
+        "quote_snapshot_id": { "type": ["string", "null"] },
+        "valuation_as_of": { "type": ["string", "null"], "format": "date-time" }
+      }
+    }
+  },
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "request_id",
+    "calculation_id",
+    "status",
+    "reason_codes",
+    "currency",
+    "scope",
+    "cuts",
+    "versions",
+    "coverage",
+    "components",
+    "input_digest",
+    "output_digest"
+  ],
+  "properties": {
+    "request_id": { "type": "string" },
+    "calculation_id": { "type": "string" },
+    "status": { "$ref": "#/$defs/status" },
+    "reason_codes": {
+      "description": "Typed reasons. Must explain a non-READY status without leaking another principal's data.",
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "currency": { "type": "string" },
+    "scope": { "$ref": "#/$defs/scopeBlock" },
+    "cuts": { "$ref": "#/$defs/cutsBlock" },
+    "versions": { "$ref": "#/$defs/versionsBlock" },
+    "coverage": { "$ref": "#/$defs/coverageBlock" },
+    "components": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "exposure": { "oneOf": [{ "$ref": "#/$defs/exposureComponent" }, { "type": "null" }] },
+        "realized": { "oneOf": [{ "$ref": "#/$defs/realizedComponent" }, { "type": "null" }] },
+        "unrealized": { "oneOf": [{ "$ref": "#/$defs/unrealizedComponent" }, { "type": "null" }] }
+      }
+    },
+    "composite_total": {
+      "description": "Present only when the components are compatible and the strict composite policy is satisfied. Absent is correct when a total would require an unproven cut or an unknown rate.",
+      "oneOf": [{ "$ref": "#/$defs/decimalString" }, { "type": "null" }]
+    },
+    "input_digest": { "type": "string" },
+    "output_digest": { "type": "string" },
+    "audit_id": {
+      "description": "Identifier of the persisted audit record. A financially sensitive READY response is not sent when the required audit cannot be written.",
+      "type": ["string", "null"]
+    },
+    "partial_allowed": {
+      "description": "True only when the caller explicitly asked for a partial report. Strict composite is the default.",
+      "type": "boolean",
+      "default": false
+    }
+  }
+}

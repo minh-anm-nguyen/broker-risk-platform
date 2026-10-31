@@ -1,0 +1,68 @@
+# Fault recipe WF07-K-01, in the format design section 14.5 pins.
+#
+# This is the declarative statement of a case: the fixture, the fault, the hook
+# it must fire at, and the assertions that make a PASS. The executable version
+# lives at tests/chaos/test_kill_points.py::test_kp07_14_crash_after_ack_before_cas_yields_one_effect
+# and tests/contract/test_it07_contracts.py::test_it07_06_ack_then_kill_gives_one_business_effect.
+#
+# Both exist on purpose. The recipe is reviewable by someone who will never read
+# the test, and the `at_hook` line is the part that cannot be fudged: if the
+# hook does not fire, oracle O8 reports INCONCLUSIVE rather than PASS.
+
+case_id: WF07-K-01
+priority: P0
+seed: 20261030
+fixture: G07-10
+environment: in-process-broker-model-sqlite
+# The real version of this case belongs in kafka-3-brokers-rf3-postgres-primary;
+# what runs here proves the interleaving, not the durability.
+environment_caveat: >
+  No network, no replication, no broker fsync. The ambiguous-ACK window and the
+  takeover ordering are genuinely exercised; the survival of an acknowledged
+  record across a leader change is not.
+
+steps:
+  - action: p03.open_epoch
+    epoch_id: "00000000-0000-4000-8000-000000000001"
+  - action: p03.insert_deal
+    deal_id: D-1001
+    account_id: A-42
+  - action: relay.start
+    owner: relay-1
+  - wait_for_hook: KP07-14          # after the delivery ACK, before the DB CAS
+  - inject: process.sigkill
+    target: relay-1
+    at_hook: KP07-14
+  - action: lease.expire_all
+  - action: relay.start
+    owner: relay-standby
+  - wait_until: outbox.state_published
+    timeout_seconds: 60
+  - action: consumer.run_until_idle
+
+assertions:
+  - deal_and_outbox_atomic
+  - same_event_id_on_replay
+  - broker_holds_two_physical_records
+  - broker_holds_one_distinct_event_id
+  - consumer_business_effect_count_equals_one
+  - postgres_outbox_claim_fencing
+  - finite_resource_budget
+
+expected_invariants: [INV07-01, INV07-03, INV07-06, INV07-08]
+
+capture:
+  - db_snapshot_before_after
+  - kafka_topic_offsets_and_event_ids
+  - consumer_inbox_projection
+  - relay_claim_tokens
+  - metrics_and_traces
+
+# Filled in by a run. NOT_RUN here is the honest default: the catalogue entry is
+# not itself a result (design section 14.2).
+result:
+  status: NOT_RUN
+  fault_triggered: false
+  oracle_results: {}
+  evidence_paths: []
+  run_at_utc: null

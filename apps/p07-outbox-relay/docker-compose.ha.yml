@@ -1,0 +1,115 @@
+# The HA-LIKE environment from design section 16.1.
+#
+# This file is configuration, not a claim. Nothing in this repository has been
+# run against it; it exists so the durability and throughput gates (G07-5,
+# G07-7) have a defined environment to be measured in, and so the settings the
+# at-least-once guarantee is stated relative to are written down somewhere
+# executable.
+#
+# What matters here and why:
+#
+#   KAFKA_CFG_DEFAULT_REPLICATION_FACTOR=3 with MIN_INSYNC_REPLICAS=2 and a
+#   producer using acks=all is the combination that makes an acknowledged
+#   record survive the loss of one broker. Two of the three must have the
+#   record before the producer is told it is written.
+#
+#   UNCLEAN_LEADER_ELECTION_ENABLE=false is the one that is easy to leave on by
+#   accident. With it enabled, an out-of-sync replica may be elected leader and
+#   acknowledged records are silently dropped -- which converts the whole
+#   at-least-once story into "usually".
+#
+# Image digests are deliberately left as tags here; section 16.1 requires them
+# to be pinned before any figure is published.
+
+services:
+  postgres:
+    image: postgres:16.4
+    environment:
+      POSTGRES_PASSWORD: outbox
+      POSTGRES_USER: outbox
+      POSTGRES_DB: broker
+    command:
+      - postgres
+      # The outbox is a high-churn queue table: frequent autovacuum keeps the
+      # claim query's index from bloating as rows cycle through PUBLISHED.
+      - -c
+      - autovacuum_vacuum_scale_factor=0.02
+      - -c
+      - autovacuum_analyze_scale_factor=0.01
+      - -c
+      - max_connections=100
+    ports:
+      - "15432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U outbox -d broker"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  kafka-1: &kafka
+    image: bitnami/kafka:3.8.0
+    environment: &kafka-env
+      KAFKA_CFG_NODE_ID: 1
+      KAFKA_CFG_PROCESS_ROLES: controller,broker
+      KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@kafka-1:9093,2@kafka-2:9093,3@kafka-3:9093
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19092
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka-1:9092,EXTERNAL://localhost:19092
+      KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT,EXTERNAL:PLAINTEXT
+      KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CFG_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_KRAFT_CLUSTER_ID: outbox-p07-ha-lab-0001
+      # The durability contract.
+      KAFKA_CFG_DEFAULT_REPLICATION_FACTOR: 3
+      KAFKA_CFG_MIN_INSYNC_REPLICAS: 2
+      KAFKA_CFG_OFFSETS_TOPIC_REPLICATION_FACTOR: 3
+      KAFKA_CFG_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 3
+      KAFKA_CFG_TRANSACTION_STATE_LOG_MIN_ISR: 2
+      KAFKA_CFG_UNCLEAN_LEADER_ELECTION_ENABLE: "false"
+      # Topic creation is a migration with a partition-count decision in it
+      # (section 5.2), not something a producer should do by accident.
+      KAFKA_CFG_AUTO_CREATE_TOPICS_ENABLE: "false"
+      ALLOW_PLAINTEXT_LISTENER: "yes"
+    ports:
+      - "19092:19092"
+
+  kafka-2:
+    <<: *kafka
+    environment:
+      <<: *kafka-env
+      KAFKA_CFG_NODE_ID: 2
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19093
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka-2:9092,EXTERNAL://localhost:19093
+    ports:
+      - "19093:19093"
+
+  kafka-3:
+    <<: *kafka
+    environment:
+      <<: *kafka-env
+      KAFKA_CFG_NODE_ID: 3
+      KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093,EXTERNAL://:19094
+      KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://kafka-3:9092,EXTERNAL://localhost:19094
+    ports:
+      - "19094:19094"
+
+  # Topics are created explicitly, with the partition counts and retention from
+  # design section 5.2, because growing an existing topic's partition count
+  # remaps keys and breaks per-aggregate order.
+  topic-init:
+    image: bitnami/kafka:3.8.0
+    depends_on: [kafka-1, kafka-2, kafka-3]
+    entrypoint: ["/bin/bash", "-c"]
+    command:
+      - |
+        set -euo pipefail
+        until kafka-topics.sh --bootstrap-server kafka-1:9092 --list >/dev/null 2>&1; do sleep 2; done
+        create() {
+          kafka-topics.sh --bootstrap-server kafka-1:9092 --create --if-not-exists \
+            --topic "$$1" --partitions "$$2" --replication-factor 3 \
+            --config min.insync.replicas=2 --config retention.ms="$$3"
+        }
+        create broker.deals.v1      6 604800000
+        create broker.snapshots.v1  3 1209600000
+        create broker.lifecycle.v1  3 1209600000
+        create broker.poison.v1     3 2592000000
+        kafka-topics.sh --bootstrap-server kafka-1:9092 --describe

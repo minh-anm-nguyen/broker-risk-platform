@@ -1,0 +1,76 @@
+# sim-usd-fx-v1 -- the approved instrument catalog for the P0 profile.
+#
+# These rows are the arithmetic. contract_size is what turns 0.5 lots into
+# 50 000 EUR, and profit_currency is what makes the product a USD amount. None
+# of it is inferable from the symbol string, which is why an unlisted symbol is
+# UNSUPPORTED_SYMBOL rather than a default 100 000-unit guess (WF5-267).
+#
+# The catalog version is part of every result's lineage. Changing contract_size
+# here without bumping the version would restate history silently, so the
+# loader rejects a row whose spec_version disagrees with its catalog.
+catalog_version: sim-usd-fx-v1
+effective_from: "2026-10-01T00:00:00Z"
+
+symbols:
+  - symbol: EURUSD
+    base_currency: EUR
+    quote_currency: USD
+    profit_currency: USD
+    calc_mode: FOREX_LINEAR_P0
+    contract_size: "100000"
+    tick_size: "0.00001"
+    volume_step: "0.01"
+    volume_max: "100"
+    approved_hash: "sim-usd-fx-v1:EURUSD"
+
+  - symbol: GBPUSD
+    base_currency: GBP
+    quote_currency: USD
+    profit_currency: USD
+    calc_mode: FOREX_LINEAR_P0
+    contract_size: "100000"
+    tick_size: "0.00001"
+    volume_step: "0.01"
+    volume_max: "100"
+    approved_hash: "sim-usd-fx-v1:GBPUSD"
+
+  - symbol: AUDUSD
+    base_currency: AUD
+    quote_currency: USD
+    profit_currency: USD
+    calc_mode: FOREX_LINEAR_P0
+    contract_size: "100000"
+    tick_size: "0.00001"
+    volume_step: "0.01"
+    volume_max: "100"
+    approved_hash: "sim-usd-fx-v1:AUDUSD"
+
+  # Declared but deliberately not computable. USDJPY's profit lands in JPY, so
+  # the linear P0 identity (profit currency == quote currency == reporting
+  # currency) does not hold and require_supported() refuses it. Keeping the row
+  # here means the refusal is tested against a realistic catalog rather than
+  # against a missing key (WF5-097).
+  - symbol: USDJPY
+    base_currency: USD
+    quote_currency: JPY
+    profit_currency: JPY
+    calc_mode: FOREX_CROSS
+    contract_size: "100000"
+    tick_size: "0.001"
+    volume_step: "0.01"
+    volume_max: "100"
+    approved_hash: "sim-usd-fx-v1:USDJPY"
+
+  # A CFD whose multiplier is broker-specific. Pushing it through the forex
+  # formula would produce a number with no defensible meaning, so the mode is
+  # outside the whitelist (WF5-079).
+  - symbol: XAUUSD
+    base_currency: XAU
+    quote_currency: USD
+    profit_currency: USD
+    calc_mode: CFD
+    contract_size: "100"
+    tick_size: "0.01"
+    volume_step: "0.01"
+    volume_max: "50"
+    approved_hash: "sim-usd-fx-v1:XAUUSD"

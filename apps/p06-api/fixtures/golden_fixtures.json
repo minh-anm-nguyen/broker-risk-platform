@@ -1,0 +1,199 @@
+{
+  "fixture_set_version": "p06-goldens-v1",
+  "note": "Expected observables for the golden fixtures in design doc section 13.2. The arithmetic here is derived by hand, independently of the engine, so a synchronised wrong assumption in both implementations is still visible. Digests are intentionally absent: they are computed from the canonical manifest at test time, and a hard-coded digest would only prove the code agrees with itself.",
+  "source": {
+    "source_id": "sim-broker-a",
+    "epoch_id": "E1",
+    "account_scan_id": "scan-A",
+    "position_scan_id": "scan-P",
+    "deal_watermark_seq": 1050,
+    "quote_snapshot_id": "quote-S1030",
+    "recon_revision": "recon-R10",
+    "risk_policy_version": "risk-policy-v1",
+    "symbol_catalog_version": "sim-usd-fx-v1"
+  },
+  "instrument": {
+    "symbol": "EURUSD",
+    "base_currency": "EUR",
+    "quote_currency": "USD",
+    "profit_currency": "USD",
+    "calc_mode": "FOREX_LINEAR",
+    "contract_size": "100000",
+    "tick_size": "0.00001",
+    "volume_step": "0.01"
+  },
+  "fixtures": [
+    {
+      "id": "FX-READY-001",
+      "gate": "P0",
+      "given": "account 00042, one BUY position of 0.5 lots EURUSD at 1.1000, quote snapshot quote-S1030 proven against scan-P",
+      "derivation": "0.5 lots x 100000 units per lot = 50000 EUR units, long only",
+      "expect": {
+        "http_status": 200,
+        "status": "READY",
+        "exposure": {
+          "EURUSD": {
+            "unit_currency": "EUR",
+            "long_units": "50000",
+            "short_units": "0",
+            "gross_units": "50000",
+            "net_units": "50000"
+          }
+        }
+      }
+    },
+    {
+      "id": "FX-REALIZED-002",
+      "gate": "P0",
+      "given": "one realized deal: gross 60.00, commission -3.50, swap -0.50, no DEAL_FEE field upstream",
+      "derivation": "60.00 + (-3.50) + (-0.50) = 56.00; fees are signed, abs() would hide the cost",
+      "expect": {
+        "http_status": 200,
+        "gross_usd": "60.00",
+        "commission_usd": "-3.50",
+        "swap_usd": "-0.50",
+        "net_excluding_fee_usd": "56.00",
+        "fee_coverage": "NOT_AVAILABLE",
+        "forbidden_fields": ["net_usd", "net_all_in_usd"]
+      }
+    },
+    {
+      "id": "FX-UNREALIZED-002b",
+      "gate": "P0",
+      "given": "the FX-READY-001 position with bid 1.1005 and ask 1.1007",
+      "derivation": "a long is marked at the bid: (1.1005 - 1.1000) x 50000 = 25.00",
+      "expect": {
+        "http_status": 200,
+        "total_usd": "25.00",
+        "quote_snapshot_id": "quote-S1030",
+        "composite_total": "81.00"
+      }
+    },
+    {
+      "id": "FX-PARTIAL-003",
+      "gate": "P0",
+      "given": "exposure and realized proven, quote snapshot not aligned with the pinned position scan",
+      "derivation": "each component is individually provable, but a cross-component sum would mix two cuts",
+      "expect": {
+        "strict": {"http_status": 409, "code": "COMPOSITE_UNPROVEN", "financial_amounts_present": false},
+        "allow_partial": {
+          "http_status": 200,
+          "status": "DEGRADED",
+          "composite_total": null,
+          "reason_codes_include": ["INCOMPATIBLE_CUT"],
+          "consistency": "INDEPENDENT"
+        }
+      }
+    },
+    {
+      "id": "FX-RECON-004",
+      "gate": "P0",
+      "given": "a blocking P04 finding for account 00042 at revision recon-R11",
+      "expect": {
+        "http_status": 409,
+        "code": "DATA_NOT_READY",
+        "reason_codes_include": ["RECON_BLOCKING"],
+        "financial_amounts_present": false,
+        "forbidden_in_body": ["BALANCE_MISMATCH"]
+      }
+    },
+    {
+      "id": "FX-EPOCH-005",
+      "gate": "P0",
+      "given": "a request pinned to epoch E1 while the source resets to E2 mid-flight",
+      "expect": {
+        "http_status": 409,
+        "code": "EPOCH_CHANGED",
+        "financial_amounts_present": false
+      }
+    },
+    {
+      "id": "FX-AUTH-006",
+      "gate": "P0",
+      "given": "analyst A owns 00042, analyst B owns 00043, both exist in the same source",
+      "expect": {
+        "direct_attempt": {"http_status": 404, "code": "RESOURCE_NOT_FOUND"},
+        "aggregate_attempt": {"http_status": 403, "code": "ACCESS_DENIED"},
+        "engine_invocations": 0,
+        "forbidden_in_body": ["00043"]
+      }
+    },
+    {
+      "id": "FX-EMPTY-007",
+      "gate": "P0",
+      "given": "a UTC day with a proven-complete deal watermark and no deals in it",
+      "derivation": "a proven empty sum is 0.00; an unproven one is a blocker",
+      "expect": {
+        "http_status": 200,
+        "status": "READY",
+        "net_excluding_fee_usd": "0.00",
+        "deals_counted": 0,
+        "deals_complete": true
+      }
+    },
+    {
+      "id": "FX-EMPTY-007b",
+      "gate": "P0",
+      "given": "the same day with an incomplete deal watermark",
+      "expect": {
+        "http_status": 409,
+        "code": "DATA_NOT_READY",
+        "reason_codes_include": ["DEAL_WATERMARK_UNPROVEN"],
+        "forbidden_in_body": ["0.00"]
+      }
+    },
+    {
+      "id": "FX-CURSOR-008",
+      "gate": "P0",
+      "given": "published scan scan-P paged at size 3, then scan-P2 published before the next page",
+      "expect": {
+        "page_one": {"http_status": 200, "position_scan_id": "scan-P"},
+        "page_two": {"http_status": 409, "code": "SCAN_CHANGED"},
+        "mixed_scan_rows": false
+      }
+    },
+    {
+      "id": "FX-DECIMAL-009",
+      "gate": "P0",
+      "given": "a source value at the allowed scale, plus NaN and float mutations",
+      "expect": {
+        "precise_value_preserved": "0.1000000001",
+        "nan_input": "rejected as INVALID_DECIMAL",
+        "float_input": "rejected before parsing",
+        "json_float_tokens_in_response": 0
+      }
+    },
+    {
+      "id": "FX-TOO-LARGE-010",
+      "gate": "P0",
+      "given": "101 requested accounts against a limit of 100",
+      "expect": {
+        "http_status": 422,
+        "code": "ACCOUNT_SCOPE_TOO_LARGE",
+        "engine_invocations": 0
+      }
+    },
+    {
+      "id": "FX-OUTAGE-011",
+      "gate": "P0",
+      "given": "the audit sink failing before commit, and separately losing the commit acknowledgement",
+      "expect": {
+        "fail_before_commit": {"http_status": 503, "code": "AUDIT_UNAVAILABLE", "audit_rows": 0},
+        "lost_acknowledgement": {"http_status": 200, "audit_rows": 1, "receipt_proved_by": "audit_id"}
+      }
+    },
+    {
+      "id": "FX-LOAD-012",
+      "gate": "P0",
+      "given": "60 simultaneous heavy reports against 4 executing and 16 queued slots",
+      "expect": {
+        "allowed_statuses": [200, 429, 503, 504],
+        "forbidden_statuses": [500],
+        "queue_depth_at_most": 16,
+        "executing_at_most": 4,
+        "served_reports_match_golden_values": true,
+        "latency_claim": "none; this harness publishes no SLO"
+      }
+    }
+  ]
+}

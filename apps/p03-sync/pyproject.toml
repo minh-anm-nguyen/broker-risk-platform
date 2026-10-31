@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=80"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "trading-data-sync"
+version = "0.1.0"
+description = "Project 03 - Trading Data Synchronization (MT5 account/position/deal ingestion into PostgreSQL)"
+requires-python = ">=3.12"
+dependencies = [
+    "sqlalchemy>=2.1,<2.2",
+    "asyncpg>=0.32,<0.33",
+    "alembic>=1.20,<1.21",
+    "pydantic>=2.14,<3",
+    "pydantic-settings>=2.16,<3",
+    "httpx>=0.28,<0.29",
+    "fastapi>=0.162,<0.163",
+    "uvicorn>=0.54,<0.55",
+    "prometheus-client>=0.26,<0.27",
+    "PyYAML>=6,<7",
+    "psutil>=7,<8",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9,<10",
+    "pytest-asyncio>=1.4,<2",
+    "hypothesis>=6.170,<7",
+]
+
+[project.scripts]
+trading-sync = "trading_sync.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+addopts = "-ra --strict-markers"
+markers = [
+    "unit: pure in-process logic, no database",
+    "integration: requires a real PostgreSQL (SYNC_TEST_DATABASE_URL)",
+    "crash: process/transaction crash-window tests, requires PostgreSQL",
+    "property: Hypothesis property or stateful model test",
+    "e2e: fake-source end-to-end through the real sink",
+    "performance: throughput/latency/soak measurements, not correctness gates",
+    "whatif: carries one or more WF3-xxx case ids from the design matrix",
+    "slow: excluded from the default fast lane",
+]
+filterwarnings = ["error::DeprecationWarning:trading_sync.*"]

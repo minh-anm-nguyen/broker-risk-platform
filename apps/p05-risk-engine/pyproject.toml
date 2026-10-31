@@ -1,0 +1,56 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "broker-risk-engine"
+version = "1.0.0"
+description = "Project 05 - Broker Risk Calculation Engine: pure Decimal risk core, cut-vector lineage, fail-closed quality gates"
+requires-python = ">=3.12"
+dependencies = [
+    "PyYAML>=6.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.112",
+    "psutil>=6.0",
+]
+postgres = [
+    "psycopg[binary]>=3.2",
+]
+
+[project.scripts]
+risk-benchmark = "risk_tools.benchmark:main"
+risk-report = "risk_tools.report:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "golden: reviewed arithmetic vectors verified against an independent oracle",
+    "contract: DTO / schema / capability handshake tests",
+    "integration: multi-component orchestration tests incl. SQL read model",
+    "property: property-based and metamorphic tests",
+    "security: authorization, isolation, redaction and ACL tests",
+    "chaos: crash point, fault injection and recovery tests",
+    "performance: benchmark / load / resource tests (slow)",
+    "p0: release-blocking case per design doc section 18.1",
+    "p1: extended-feature case",
+    "p2: advanced research case",
+    "slow: excluded from the per-commit smoke suite",
+    "wf5: carries one or more WF5-NNN matrix case ids",
+    "needs_postgres: requires a live PostgreSQL reachable via RISK_PG_DSN",
+]
+filterwarnings = ["error::DeprecationWarning:risk.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

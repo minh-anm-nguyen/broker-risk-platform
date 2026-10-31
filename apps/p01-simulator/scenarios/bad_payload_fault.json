@@ -1,0 +1,15 @@
+{
+  "scenario_name": "bad-payload-fault",
+  "seed": 31,
+  "generator_version": "1.0",
+  "start_virtual_time": "2026-10-30T00:00:00Z",
+  "account_count": 5,
+  "deal_count": 100,
+  "max_open_positions": 5,
+  "symbols": ["EURUSD"],
+  "initial_balance_usd": "10000.00",
+  "execution_mode": "bulk_generate",
+  "fault_profile": "none",
+  "_note": "fault_profile is recorded in the spec but faults are declared separately through POST /admin/v1/faults, so that turning one on never changes the generated dataset or its digest. The companion rules for this scenario are in scenarios/bad_payload_fault.rules.json.",
+  "_companion_rules": "scenarios/bad_payload_fault.rules.json"
+}

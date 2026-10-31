@@ -1,0 +1,55 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mt5-reconciliation-service"
+version = "1.0.0"
+description = "Project 04 - Snapshot Reconciliation & Recovery: evidence-first audit of P03 synced state against an independent source oracle, with fenced, approval-gated recovery"
+requires-python = ">=3.12"
+dependencies = [
+    "pydantic>=2.9",
+    "pydantic-settings>=2.4",
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.112",
+    "psutil>=6.0",
+    "fastapi>=0.115",
+    "uvicorn[standard]>=0.30",
+    "prometheus-client>=0.21",
+]
+
+[project.scripts]
+reconctl = "reconciliation.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+# src layout without an install step; "." makes tests.conftest helpers importable.
+pythonpath = ["src", "."]
+addopts = "-q --strict-markers"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+markers = [
+    "unit: fast in-process unit tests",
+    "contract: source/P03 port contract tests",
+    "integration: multi-component integration tests against PostgreSQL-equivalent SQLite and live P01",
+    "chaos: crash-window and fault-injection tests (slow)",
+    "property: property-based and metamorphic tests",
+    "security: RBAC, privilege and adversarial-input tests",
+    "performance: benchmark and load tests (slow)",
+    "campaign: what-if matrix campaign runs (slow)",
+    "slow: excluded from the per-commit smoke suite",
+]
+filterwarnings = ["error::DeprecationWarning:reconciliation.*"]
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"

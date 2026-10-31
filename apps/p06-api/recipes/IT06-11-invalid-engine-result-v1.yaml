@@ -1,0 +1,38 @@
+# Fault recipe: the engine returns a result that fails its own contract.
+#
+# Every variant must produce 502 INVALID_RISK_RESULT with no money in the body.
+recipe_id: IT06-11-invalid-engine-result-v1
+description: >
+  Inject a wrong currency, a missing input digest, a dropped cut, a NaN amount
+  and a float amount in separate runs.
+
+world:
+  source_id: sim-broker-a
+  epoch_id: E1
+
+principal:
+  subject: analyst-a
+  roles: [risk_analyst]
+
+action:
+  method: GET
+  path: /api/v1/accounts/00042/risk
+  query:
+    source_id: sim-broker-a
+
+variants:
+  - injections: [{at: p05.return_bad_currency, action: arm}]
+  - injections: [{at: p05.drop_input_digest, action: arm}]
+  - injections: [{at: p05.drop_cut, action: arm}]
+  - injections: [{at: p05.return_nan, action: arm}]
+  - injections: [{at: p05.return_float, action: arm}]
+
+expect:
+  http_status: 502
+  public_code: [INVALID_RISK_RESULT]
+  response_has_financial_amounts: false
+  forbidden_in_body: ["56.00", "81.00", "NaN", "XXX"]
+  audit_decisions_exclude: [ALLOW]
+  required_evidence:
+    - injection_fired
+    - http_capture

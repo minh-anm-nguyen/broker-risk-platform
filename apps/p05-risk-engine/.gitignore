@@ -1,0 +1,13 @@
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.hypothesis/
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Generated evidence. Regenerate with `make test`; a committed artifact would
+# claim an execution that did not happen on the reader's machine.
+artifacts/test_matrix_results.json
+artifacts/benchmark-*.json

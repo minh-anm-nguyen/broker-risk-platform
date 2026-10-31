@@ -1,0 +1,29 @@
+# IT-03: the source is replaced while a multi-page scan is running.
+scenario_id: WF2-I-07
+implemented_by: tests/integration/test_source_faults.py::TestSourceReset
+simulator:
+  seed: 42
+  run_id: run_0001
+  initial_accounts: 10
+  initial_deals: 50
+connector:
+  worker_mode: thread
+  max_queue: 8
+  page_size: 5
+  page_deadline_ms: 3000
+  queue_wait_cap_ms: 500
+injection:
+  layer: simulator_control_plane
+  trigger: {after_page: 2}
+  action: {mode: reset_run}
+  credential: admin   # the connector holds a data-plane token only
+fault_activation_expected: 1
+assertions:
+  - no_mixed_source_generation
+  - no_checkpoint_advance
+  - resync_required_signalled
+  - readiness_false_until_acknowledged
+  - event_loop_remains_responsive
+artifacts:
+  - what_if_results.json
+  - scorecard.md

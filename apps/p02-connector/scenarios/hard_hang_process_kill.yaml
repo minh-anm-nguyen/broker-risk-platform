@@ -1,0 +1,24 @@
+# IT-07: a call that never returns, recovered by killing the worker process.
+scenario_id: WF2-E-04
+implemented_by: tests/chaos/test_process_worker.py::TestProcessWorker
+simulator:
+  seed: 42
+connector:
+  # NOT satisfiable in thread mode: a Python thread cannot be stopped. A run
+  # with worker_mode=thread must report NOT_SUPPORTED for this scenario.
+  worker_mode: process
+  hung_call_hard_limit_ms: 300
+  drain_timeout_ms: 500
+injection:
+  layer: driver_double
+  action: {mode: block_forever}
+fault_activation_expected: 1
+assertions:
+  - worker_process_killed_and_reaped
+  - blocked_reader_released_by_the_kill
+  - new_epoch_serves_after_recovery
+  - stale_frames_from_the_old_epoch_discarded
+  - no_orphan_process
+artifacts:
+  - what_if_results.json
+  - scorecard.md

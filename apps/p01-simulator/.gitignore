@@ -1,0 +1,22 @@
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.hypothesis/
+.ruff_cache/
+.venv/
+venv/
+
+# Local configuration and secrets. Only .env.example is tracked.
+.env
+
+# Generated datasets and their SQLite sidecars.
+data/
+*.db
+*.db-wal
+*.db-shm
+*.db.writer.lock
+
+# Evidence bundles and benchmark artefacts are produced per run, not committed.
+# Golden digests that are deliberately frozen belong in tests, not here.
+artifacts/
