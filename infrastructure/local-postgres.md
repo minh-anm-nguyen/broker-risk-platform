@@ -24,7 +24,7 @@ tables inside the database meant for the real schema.
 |---|---|---|
 | `trading_sync_test` | P03 | Scratch database for P03's own suite. Created and torn down per run. |
 | `broker_platform` | P07 | P07's outbox tables **plus** its deliberate stand-in for P03's. Never point the real P03 at this one. |
-| `broker_risk` | P03 | The real P03 schema, from `alembic upgrade head`. What P05 reads. |
+| `broker_risk` | P03 | The real P03 schema, from `alembic upgrade head`, plus P07's outbox tables. What P05 reads, what P04's PostgreSQL target reader reads, and where the outbox row shares the Deal's transaction. |
 
 ## Roles
 
@@ -66,6 +66,7 @@ GRANT USAGE ON SCHEMA public TO sync_app;
 export SYNC_TEST_DATABASE_URL="postgresql+asyncpg://postgres@127.0.0.1:55432/trading_sync_test"
 export OUTBOX_PG_DSN="postgresql://postgres@127.0.0.1:55432/broker_platform"
 export RISK_PG_DSN="postgresql://risk_reader@127.0.0.1:55432/broker_risk"
+export RECON_TARGET_PG_DSN="postgresql://postgres@127.0.0.1:55432/broker_risk"
 ```
 
 Do **not** also export `SYNC_DATABASE_URL` when running P03's suite:

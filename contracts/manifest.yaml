@@ -657,12 +657,43 @@ gaps:
       By running `reconctl source check` against the live P01 during a chain
       run. The command prints its own p03_implementation field, which says so
       plainly - but only when something actually runs it.
+    status: partially-resolved
     resolution: >
-      P04 needs a PostgreSQL target adapter against P03's real schema, beside
-      the SQLite one it has. The capture logic is written against a connection
-      and a cut, so the shape is right; what is missing is the adapter and a
-      suite that runs it against a migrated P03 database, as P03's own
-      integration_pg suite now does.
+      ADAPTER BUILT AND VERIFIED 2026-10-31; the reconciliation path still runs
+      on the harness.
+
+      reconciliation/db/pg_target.py reads Project 03's real schema under a
+      REPEATABLE READ READ ONLY snapshot: the epoch, the checkpoint and the
+      published scan in one capture, then the rows bounded by the watermark.
+      Three divergences from the harness had to be handled and none was a SQL
+      translation:
+
+      * the cut - SQLite pins a snapshot with BEGIN DEFERRED, PostgreSQL uses
+        REPEATABLE READ, which is a real MVCC snapshot and the stronger
+        guarantee;
+      * the read-only guarantee - SQLite enforces it structurally with an
+        authorizer returning SQLITE_DENY, PostgreSQL has roles, so the GRANT is
+        the control and READ ONLY is defence in depth;
+      * the vocabulary - P03's columns are entry_kind and source_status where
+        the harness says entry and status. They are aliased at the adapter
+        boundary, which is not cosmetic: P04's canonical digests are computed
+        over those keys, so renaming them downstream would change every hash it
+        has recorded.
+
+      Verified against the live database holding the 26 deals this chain run
+      produced: cut PUBLISHED at watermark 38, 26 deals, 11 positions, 1
+      account, money arriving as Decimal rather than float, an unbounded deal
+      read refused, an unknown entity refused, a missing epoch raising instead
+      of reading as "nothing to reconcile", and the capture refusing a write.
+      Eight new cases; P04's suite is 276 passed.
+
+      Still open: target_capture.py and the campaign path continue to use the
+      SQLite harness, so P04's reconciliation verdicts are still produced
+      against a model of P03 rather than P03. Wiring this adapter into that
+      path means changing the component whose job is to be trustworthy about
+      discrepancies, at the same time as introducing a new database - two risks
+      at once, and it deserves its own pass. The adapter and its evidence exist
+      now, which is what that pass was missing.
     note: >
       Same pattern as CG-08 and CG-12: a component built correctly against its
       own idea of a neighbour. Three of the eight seams turned out this way,

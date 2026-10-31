@@ -226,7 +226,7 @@ chain rather than by reading it.
 |---|---|---|
 | 1 | P01 → P02 | **proven live** — two processes over HTTP, all three entities scanned |
 | 2 | P02 → P03 | **proven live (CG-12 closed)** — P02 now serves the four read paths P03 already requested, each through `connector.read_page`, so bounded admission, the dedicated worker, worker epochs and late-response fencing are back in the path |
-| 3 | P03 → P04 | **stand-in (CG-13, open)** — P04 fetches the source for real but its "P03 target" is a SQLite harness; `reconctl source check` prints `p03_implementation: "contract harness"` |
+| 3 | P03 → P04 | **adapter built, path not switched (CG-13)** — `reconciliation/db/pg_target.py` reads P03's real schema under a `REPEATABLE READ READ ONLY` snapshot and is verified against the live 26 deals. `target_capture.py` still runs on the SQLite harness, so P04's verdicts are still produced against a model of P03 |
 | 4 | P03 → P05 | **proven** — dialect-aware reader verified against PostgreSQL under a `SELECT`-only role, so the GRANT is the control rather than the code |
 | 5 | P05 → P06 | **scoped (CG-01)** — P06 serves from the reference library over in-memory read views |
 | 6 | P03 → P07 | **proven (CG-08, CG-11)** — the outbox row commits in the Deal's transaction |

@@ -140,6 +140,7 @@ test-integrated:
 		|| echo "note: could not confirm PostgreSQL on $(PG_HOST):$(PG_PORT); DB-backed cases will report BLOCKED_ENVIRONMENT"
 	@SYNC_TEST_DATABASE_URL="postgresql+asyncpg://postgres@$(PG_HOST):$(PG_PORT)/trading_sync_test" \
 		OUTBOX_PG_DSN="postgresql://postgres@$(PG_HOST):$(PG_PORT)/broker_platform" \
+		RECON_TARGET_PG_DSN="postgresql://postgres@$(PG_HOST):$(PG_PORT)/broker_risk" \
 		RISK_PG_DSN="postgresql://risk_reader@$(PG_HOST):$(PG_PORT)/broker_risk" \
 		$(MAKE) --no-print-directory test
 # ----------------------------------------------------------------- oracle ---
